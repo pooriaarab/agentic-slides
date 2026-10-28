@@ -134,8 +134,10 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
   Nothing serves or inlines the font files yet, so a page falls back to the font stack.
 - The present page holds the speaker notes of every slide. Anyone who can open it can read them in the page source.
 - The deck page runs no script. The present page runs one fixed script, and its CSP names that script by hash.
-- PDF text uses Helvetica. A character outside Latin-1 becomes `?` and is listed in `warnings`. The PDF has no tags yet.
-  An open font for all scripts is next on the list.
+- PDF text uses Noto Sans (SIL OFL 1.1), cut down to Latin, Latin Extended, Greek, and Cyrillic.
+  The font ships in the package and is embedded as a subset, so a PDF stays small and the
+  bytes are the same on every run. Han, Arabic, Indic, and other scripts become `?` and are
+  listed in `warnings`. The PDF has no tags yet.
 - The Worker keeps decks in memory, per isolate. Durable adapters go behind the same `Store` and `Blobs` shapes.
 - A token has 32 or more characters. A request holds at most 20 images, 10 MB each, and 32 MB in all.
 - Elements cannot be added or deleted one by one yet.

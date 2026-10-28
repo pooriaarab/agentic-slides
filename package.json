@@ -24,7 +24,9 @@
     "node": ">=20"
   },
   "files": [
-    "dist"
+    "dist",
+    "fonts/OFL.txt",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -50,6 +52,7 @@
     "ci:local": "npm run build && npm run typecheck && npm test"
   },
   "dependencies": {
+    "@cantoo/fontkit": "^2.0.12",
     "@cantoo/pdf-lib": "^2.11.1",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@noble/hashes": "^2.4.0",

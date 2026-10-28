@@ -1,11 +1,28 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage } from "@cantoo/pdf-lib";
+import { PDFDocument, rgb, type PDFFont, type PDFImage } from "@cantoo/pdf-lib";
+import * as fontkit from "@cantoo/fontkit";
 import type { DeckOutline } from "../core/deck.js";
 import { SLIDE_HEIGHT, SLIDE_WIDTH, TABLE_FONT_SIZE, checkTheme, type ColorToken } from "../core/layouts.js";
 import { isBlobRef, type Element, type Run } from "../core/model.js";
 import { fail } from "../core/principal.js";
+import { NOTO_SANS } from "./fonts.js";
 import { DEFAULT_LIMITS, checkDeckSize, tooManyPixels, type Limits } from "./limits.js";
 
-type Fonts = Record<"regular" | "bold" | "italic" | "boldItalic", PDFFont>;
+type Face = "regular" | "bold" | "italic" | "boldItalic";
+type Fonts = Record<Face, PDFFont>;
+const faceOf = (bold: boolean | undefined, italic: boolean | undefined): Face => (bold ? (italic ? "boldItalic" : "bold") : italic ? "italic" : "regular");
+
+/** The faces that some non-empty text uses. A subset with no glyph cannot be written, so an unused face is not embedded. */
+function facesUsed(outline: DeckOutline): Set<Face> {
+  const used = new Set<Face>();
+  for (const e of outline.slides.flatMap((s) => s.elements)) {
+    if (e.kind === "text") {
+      for (const run of e.runs) if (run.text.replaceAll("\n", "") !== "") used.add(faceOf(run.bold || e.slot === "title", run.italic));
+      if (e.list && e.runs.some((r) => r.text.replaceAll("\n", "") !== "")) used.add("regular");
+    } else if (e.kind === "table") e.rows.forEach((row, r) => row.forEach((cell) => cell !== "" && used.add(r === 0 ? "bold" : "regular")));
+  }
+  return used;
+}
+
 interface Word {
   text: string;
   font: PDFFont;
@@ -21,7 +38,8 @@ function hex(value: string) {
 
 /**
  * Draw the deck as a PDF, one 1280x720 page per slide, with no browser. Text uses the
- * standard Helvetica faces, so characters outside Latin-1 become "?" and come back as warnings.
+ * Noto Sans, so Latin, Greek, and Cyrillic text draws. A character the font lacks becomes "?"
+ * and comes back as a warning.
  * `images` holds the bytes of each `blob:` key. An image that is missing or cannot be decoded
  * becomes a placeholder and a warning. A deck over a limit is refused with EXPORT_LIMIT.
  */
@@ -40,18 +58,21 @@ export async function renderPdf(
   const theme = checkTheme(outline.theme);
   const color = (token: ColorToken) => hex(theme.colors[token]);
   const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
   doc.setTitle(outline.title);
   doc.setCreator("agentic-slides");
   doc.setProducer("agentic-slides");
   doc.setCreationDate(new Date(0));
   doc.setModificationDate(new Date(0));
   if (outline.slides.some((s) => s.machineMade)) doc.setSubject("Includes machine-made content");
-  const fonts: Fonts = {
-    regular: await doc.embedFont(StandardFonts.Helvetica),
-    bold: await doc.embedFont(StandardFonts.HelveticaBold),
-    italic: await doc.embedFont(StandardFonts.HelveticaOblique),
-    boldItalic: await doc.embedFont(StandardFonts.HelveticaBoldOblique),
-  };
+  // A fixed name keeps the bytes the same on every run. The default adds a random suffix.
+  const embedFace = (bytes: Uint8Array, customName: string) => doc.embedFont(bytes, { subset: true, customName });
+  const fonts = {} as Fonts;
+  const used = facesUsed(outline);
+  for (const face of ["regular", "bold", "italic", "boldItalic"] as const) {
+    if (used.has(face)) fonts[face] = await embedFace(NOTO_SANS[face], `NotoSans-${face}`);
+  }
+  const covered = fontkit.create(NOTO_SANS.regular) as fontkit.Font;
   const warnings: string[] = [];
   const embedded = new Map<string, PDFImage | undefined>();
   let imageBytes = 0;
@@ -80,8 +101,7 @@ export async function renderPdf(
     let missingImages = 0;
     const safe = (text: string): string =>
       [...text].map((ch) => {
-        // The font encodes a character it cannot draw as "?" (0x3F) and does not throw.
-        if (ch === "?" || String(fonts.regular.encodeText(ch)) !== "<3F>") return ch;
+        if (/\s/.test(ch) || covered.hasGlyphForCodePoint(ch.codePointAt(0)!)) return ch;
         lost.add(ch);
         return "?";
       }).join("");
@@ -92,8 +112,7 @@ export async function renderPdf(
       const lines: Word[][] = [];
       for (const paragraph of runs.map((r) => ({ ...r, text: safe(r.text) })).flatMap((r) => r.text.split("\n").map((part, i) => ({ r, part, fresh: i > 0 })))) {
         if (paragraph.fresh || lines.length === 0) lines.push([]);
-        const bold = paragraph.r.bold || forceBold;
-        const font = bold ? (paragraph.r.italic ? fonts.boldItalic : fonts.bold) : paragraph.r.italic ? fonts.italic : fonts.regular;
+        const font = fonts[faceOf(paragraph.r.bold || forceBold, paragraph.r.italic)];
         for (const text of paragraph.part.split(/(?<=\s)/).filter(Boolean)) {
           const line = lines[lines.length - 1]!;
           const used = line.reduce((sum, w) => sum + w.font.widthOfTextAtSize(w.text, size), 0);
@@ -130,7 +149,7 @@ export async function renderPdf(
           const x = e.x + c * cell;
           const y = top(e.y + r * ROW_HEIGHT, ROW_HEIGHT);
           page.drawRectangle({ x, y, width: cell, height: ROW_HEIGHT, borderColor: color("muted"), borderWidth: 1, ...(r === 0 ? { color: color("accent") } : {}) });
-          page.drawText(safe(text), { x: x + 10, y: y + 15, size: TABLE_FONT_SIZE, font: r === 0 ? fonts.bold : fonts.regular, color: color(r === 0 ? "accentText" : "text") });
+          if (text !== "") page.drawText(safe(text), { x: x + 10, y: y + 15, size: TABLE_FONT_SIZE, font: r === 0 ? fonts.bold : fonts.regular, color: color(r === 0 ? "accentText" : "text") });
         });
       });
     };

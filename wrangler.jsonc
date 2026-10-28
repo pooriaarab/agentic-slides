@@ -5,5 +5,6 @@
   // Set the real tokens as a secret: `npx wrangler secret put SLIDES_TOKENS`.
   "name": "agentic-slides",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-01-01"
+  "compatibility_date": "2026-01-01",
+  "rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }]
 }

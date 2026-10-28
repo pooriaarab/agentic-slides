@@ -11,4 +11,6 @@ export default defineConfig({
   format: ["esm"],
   dts: true,
   clean: true,
+  // The font files are bundled, so a Worker needs no file system.
+  loader: { ".ttf": "binary" },
 });

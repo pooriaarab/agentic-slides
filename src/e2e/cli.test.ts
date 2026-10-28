@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { inflateSync } from "node:zlib";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -32,6 +33,23 @@ function runAsync(args: string[], input: string): Promise<{ code: number | null;
     child.on("close", (code) => done({ code, err }));
     child.stdin.end(input);
   });
+}
+
+/** The text of every ToUnicode map in a PDF: the code points it can show. */
+function pdfToUnicode(pdf: Buffer): string {
+  const latin = pdf.toString("latin1");
+  let out = "";
+  for (const m of latin.matchAll(/stream\r?\n/g)) {
+    const start = m.index! + m[0].length;
+    const end = latin.indexOf("endstream", start);
+    try {
+      const text = inflateSync(pdf.subarray(start, end)).toString("latin1");
+      if (text.includes("beginbfchar") || text.includes("beginbfrange")) out += text;
+    } catch {
+      // not a Flate stream
+    }
+  }
+  return out.toUpperCase();
 }
 
 const json = (text: string) => JSON.parse(text) as Record<string, any>;
@@ -139,12 +157,27 @@ describe("slides CLI", () => {
   });
 
   test("characters the PDF font cannot draw are reported, not hidden", () => {
-    run(["new", "Polish", "--id", "polish", "--as", AGENT]);
-    run(["add", "polish", "--outline", "-", "--as", AGENT], { input: "# Łódź\n- zażółć" });
-    const exported = json(run(["export", "polish", "--out", join(work, "polish.pdf")]).out);
+    run(["new", "Han", "--id", "han", "--as", AGENT]);
+    run(["add", "han", "--outline", "-", "--as", AGENT], { input: "# 日本語\n- 漢字" });
+    const exported = json(run(["export", "han", "--out", join(work, "han.pdf")]).out);
     expect(exported.warnings).toHaveLength(1);
     expect(exported.warnings[0]).toContain("slide 1");
-    expect(exported.warnings[0]).toContain("Ł");
+    expect(exported.warnings[0]).toContain("日");
+  });
+
+  test("Polish, Greek, and Cyrillic text is embedded with no warning", () => {
+    const text = "Łódź zażółć gęślą jaźń\nΕλληνικά κείμενο\nПривет, мир";
+    run(["new", "Scripts", "--id", "scripts", "--as", AGENT]);
+    run(["add", "scripts", "--outline", "-", "--as", AGENT], { input: `# ${text.split("\n")[0]}\n${text.split("\n").slice(1).map((l) => `- ${l}`).join("\n")}` });
+    const pdf = join(work, "scripts.pdf");
+    const exported = json(run(["export", "scripts", "--out", pdf]).out);
+    expect(exported.warnings).toEqual([]);
+    const mapped = pdfToUnicode(readFileSync(pdf));
+    for (const ch of ["Ł", "ó", "ź", "Ε", "λ", "ά", "П", "р", "и"]) expect(mapped, ch).toContain(ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0"));
+    expect(readFileSync(pdf).length).toBeLessThan(120_000);
+    const again = join(work, "scripts2.pdf");
+    run(["export", "scripts", "--out", again]);
+    expect(readFileSync(again).equals(readFileSync(pdf))).toBe(true);
   });
 
   test("SLIDES_DIR and SLIDES_AUTHOR set the defaults", () => {
