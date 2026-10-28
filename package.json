@@ -51,6 +51,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
+    "lib0": "^0.2.119",
+    "yjs": "^13.6.33",
     "zod": "^3.25.0"
   },
   "devDependencies": {

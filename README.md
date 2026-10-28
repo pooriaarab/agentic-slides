@@ -7,33 +7,60 @@
 
 Build and present slide decks with people and agents.
 
-> Status: scaffold. This repository holds the starter code only. It is not on npm
-> yet, and none of the features below work yet.
+> Status: early. Only the deck library works. The CLI, the MCP server, the
+> HTTP API, rendering, and export are not ready yet. The package is not on npm yet.
 
-## Planned features
+## Install
 
-- Slides with text, shapes, images, and layouts.
-- Real-time editing with live cursors.
-- Present mode with speaker notes.
-- Agent tools: make a deck from an outline, and edit one slide.
-- Export to PDF and PPTX.
-- Share by invite or link, with roles.
+```sh
+npm install agentic-slides
+```
 
-## Surfaces
+## Quick start
 
-One package gives you each way in:
+```ts
+import { Deck } from "agentic-slides";
 
-- **Library and SDK**: `import { ... } from "agentic-slides"`.
-- **CLI**: `npx agentic-slides --help`.
-- **MCP server**: `npx agentic-slides mcp`, for Claude Code and other MCP clients.
-- **HTTP API**: a Cloudflare Worker you deploy to your own account.
-- **Web UI**: a small app served by the same Worker.
+const author = { kind: "agent_of_human", name: "writer-bot" } as const;
+const deck = Deck.create({ title: "Launch", author });
+
+deck.addSlidesFromOutline(
+  ["layout: title", "# Launch plan", "Q4 kickoff", "---", "# Goals", "- **Ship** the beta", "- Train support", "> Say thanks."].join("\n"),
+  { author },
+);
+
+console.log(deck.outline().slides.map((s) => s.title)); // ["Launch plan", "Goals"]
+```
+
+## Features
+
+- Slides on a fixed 1280 by 720 space (16:9), kept in a Yjs document.
+- Layouts: `title`, `title-body`, `section`, `two-column`, `image-right`, `blank`.
+- Elements: text with bold and italic, shapes, images, and tables.
+- Speaker notes and a theme with color tokens and self-hosted fonts.
+- Operations that run in Node with no browser: read the deck as an outline,
+  add, move, and delete a slide, set a slide from a text outline, edit one element.
+- Every edit records who made it. Content from an agent is marked `machineMade`.
+- A bad outline fails with a code and a slide number. It never changes the deck.
+
+## Outline format
+
+Slides split at a line of `---`. A slide can hold `layout: <name>` as its first line,
+`# Title`, body lines, `- ` items, `+++` for the next column, `|a|b|` table rows,
+`![alt](path)` for one image, and `> note` for speaker notes.
+
+## Limits
+
+- Text fit is an estimate from font size and box size. It is the same on every run.
+- An image must be a stored blob. A network address is refused.
+- Moving a slide copies it. A concurrent edit to the same slide can be lost.
+- Elements cannot be added or deleted one by one yet.
 
 ## Develop
 
 ```sh
 npm ci
-npm run build && npm run typecheck && npm test
+npm run ci:local
 ```
 
 ## License

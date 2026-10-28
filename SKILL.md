@@ -1,35 +1,25 @@
 ---
 name: agentic-slides
-description: Build and present slide decks with people and agents. Keywords: slides,presentation,deck,collaboration,agents,mcp,cli,pptx.
+description: Build and edit slide decks from an outline. Every edit records its author.
 ---
 
 # agentic-slides
 
-Build and present slide decks with people and agents.
+Status: early. Only the SDK works today.
 
 ## Use the SDK
 
 ```js
-import { summarizeText, dispatchText } from "agentic-slides";
+import { Deck } from "agentic-slides";
 
-summarizeText("some text");
-await dispatchText("some text", { dryRun: true });
+const author = { kind: "agent_of_human", name: "writer-bot" };
+const deck = Deck.create({ title: "Talk", author });
+deck.addSlidesFromOutline("# One\n- point", { author });
+deck.outline();
 ```
-
-## Use the CLI
-
-```sh
-agentic-slides summary --text "some text"
-agentic-slides dispatch --text "some text" --dry-run
-```
-
-## Use the MCP server
-
-Start the server with `agentic-slides mcp`. Call `summarize_text`
-for stats, `dispatch_text` for routes, `get_cost_report` for costs.
 
 ## Rules
 
-- Preview each route with dry run first.
-- Report guard denials and adapter errors as failures.
-- Read the cost report at the end.
+- Pass your real author kind on every call.
+- A failed outline lists all its issues. Fix them all.
+- Images come from stored blobs, never from a URL.
