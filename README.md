@@ -52,7 +52,7 @@ Run `npx agentic-slides --help` for all flags.
 Run `npx agentic-slides mcp`. The tools are `create_deck`, `read_outline`, `add_slides`,
 `set_slide`, `edit_element`, `move_slide`, `delete_slide`, `render_deck`, and `export_pdf`.
 The server sets the author of every edit: `agent`, or the `SLIDES_AUTHOR` value. A model cannot
-claim to be a human. A failed call returns an error result with the issue list.
+claim to be a human, and the server refuses to start with a `human` author. A failed call returns an error result with the issue list.
 
 ## Features
 
@@ -78,7 +78,16 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 ## Limits
 
 - Text fit is an estimate from font size and box size. It is the same on every run.
-- An image must be a stored blob. A network address is refused.
+- An image must be a stored blob (`blob:sha256-<64 hex digits>`). A network address is refused.
+  An image that is gone from the store, or cannot be decoded, draws as a placeholder
+  in HTML and PDF. The PDF export lists it in `warnings`.
+- The CLI reads image files only from the outline's own folder, and refuses a file over 10 MB.
+- Several processes can share one store directory. Each edit takes a lock on the deck. A
+  lock that a dead process left is taken over after 30 seconds. A live lock that does not
+  free in 10 seconds fails the edit with `STORE_BUSY`.
+- Export limits: 200 slides, 4000 elements, 25 million pixels and 10 MB per image,
+  64 MB of images in total, and 20 seconds. A deck over a limit fails with `EXPORT_LIMIT`.
+- PDF export lists text that does not fit its box in `warnings`. It cuts that text.
 - Setting a slide from an outline replaces all of its elements. Element ids change,
   and a box or a shape you added by hand is gone. A concurrent edit to the old
   elements is lost. Use `editElement` to change one element in place.
@@ -91,6 +100,7 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 - The present page holds the speaker notes of every slide. Anyone who can open it can read them in the page source.
 - The deck page runs no script. The present page runs one fixed script, and its CSP names that script by hash.
 - PDF text uses Helvetica. A character outside Latin-1 becomes `?` and is listed in `warnings`. The PDF has no tags yet.
+  An open font for all scripts is next on the list.
 - Elements cannot be added or deleted one by one yet.
 
 ## Develop

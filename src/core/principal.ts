@@ -26,7 +26,9 @@ export type SlidesErrorCode =
   | "NO_DECK"
   | "DECK_EXISTS"
   | "INVALID_ID"
-  | "UNSUPPORTED_IMAGE";
+  | "UNSUPPORTED_IMAGE"
+  | "EXPORT_LIMIT"
+  | "STORE_BUSY";
 
 export interface Issue {
   code: SlidesErrorCode;

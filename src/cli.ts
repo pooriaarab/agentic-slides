@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-import { readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { COMMAND, DESCRIPTION } from "./brand.js";
 import { imagePaths } from "./core/outline.js";
-import { PRINCIPAL_KINDS, SlidesError, parsePrincipal, type Principal } from "./core/principal.js";
+import { PRINCIPAL_KINDS, SlidesError, fail, parsePrincipal, type Principal } from "./core/principal.js";
+import { DEFAULT_LIMITS } from "./export/limits.js";
 import { createService } from "./service.js";
 import { FileBlobs, FileStore } from "./store/file.js";
 import { VERSION } from "./version.js";
@@ -67,11 +68,17 @@ async function readOutline(path: string): Promise<{ text: string; base: string }
   return { text: await readFile(path, "utf8"), base: dirname(resolve(path)) };
 }
 
+/** Read the image files an outline names. Only regular files inside the outline's own folder count. */
 async function readImages(text: string, base: string): Promise<Record<string, Uint8Array>> {
   const files: Record<string, Uint8Array> = {};
+  const root = await realpath(base);
   for (const path of imagePaths(text)) {
-    const data = await readFile(resolve(base, path)).catch(() => undefined);
-    if (data) files[path] = new Uint8Array(data);
+    const full = await realpath(resolve(base, path)).catch(() => undefined);
+    const inside = full !== undefined && !relative(root, full).startsWith("..") && !isAbsolute(relative(root, full));
+    const info = inside ? await stat(full) : undefined;
+    if (!info?.isFile()) continue;
+    if (info.size > DEFAULT_LIMITS.maxImageBytes) fail("UNSUPPORTED_IMAGE", `image "${path}" is over ${DEFAULT_LIMITS.maxImageBytes} bytes`);
+    files[path] = new Uint8Array(await readFile(full!));
   }
   return files;
 }

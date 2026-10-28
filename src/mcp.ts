@@ -4,7 +4,7 @@ import { fromBase64, toBase64 } from "lib0/buffer";
 import { z } from "zod";
 import { COMMAND } from "./brand.js";
 import { COLOR_TOKENS } from "./core/layouts.js";
-import { SlidesError, checkAuthor, type Principal } from "./core/principal.js";
+import { SlidesError, checkAuthor, fail, type Principal } from "./core/principal.js";
 import { createService, type Service } from "./service.js";
 import { FileBlobs, FileStore } from "./store/file.js";
 import { VERSION } from "./version.js";
@@ -43,7 +43,7 @@ const decode = (files?: Record<string, string>) =>
   files && Object.fromEntries(Object.entries(files).map(([path, data]) => [path, fromBase64(data)]));
 
 export function createMcpServer({ service, author = { kind: "agent", name: "mcp-client" } }: McpDeps): McpServer {
-  checkAuthor(author);
+  if (checkAuthor(author).kind === "human") fail("INVALID_AUTHOR", "an MCP server acts for a model, so it cannot write as a human. Use agent, agent_of_human, agent_of_agent, or user_token");
   const server = new McpServer({ name: COMMAND, version: VERSION });
   const edit = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
   const read = { readOnlyHint: true, openWorldHint: false } as const;
@@ -76,7 +76,7 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
   );
   tool(
     "set_slide",
-    "Replace one slide from a text outline of one slide.",
+    "Replace one slide from a text outline of one slide. All elements of the slide are replaced: element ids change and shapes or boxes added by hand are lost. Use edit_element to change one element in place.",
     { deck, slide, outline: z.string(), images },
     edit,
     async (a) => (await service.setSlide(a.deck, a.slide, { outline: a.outline, images: decode(a.images), author }), { ok: true }),

@@ -1,8 +1,9 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont } from "@cantoo/pdf-lib";
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage } from "@cantoo/pdf-lib";
 import type { DeckOutline } from "../core/deck.js";
 import { SLIDE_HEIGHT, SLIDE_WIDTH, TABLE_FONT_SIZE, checkTheme, type ColorToken } from "../core/layouts.js";
-import type { Element, Run } from "../core/model.js";
+import { isBlobRef, type Element, type Run } from "../core/model.js";
 import { fail } from "../core/principal.js";
+import { DEFAULT_LIMITS, checkDeckSize, tooManyPixels, type Limits } from "./limits.js";
 
 type Fonts = Record<"regular" | "bold" | "italic" | "boldItalic", PDFFont>;
 interface Word {
@@ -21,12 +22,21 @@ function hex(value: string) {
 /**
  * Draw the deck as a PDF, one 1280x720 page per slide, with no browser. Text uses the
  * standard Helvetica faces, so characters outside Latin-1 become "?" and come back as warnings.
- * `images` holds the bytes of each `blob:` key.
+ * `images` holds the bytes of each `blob:` key. An image that is missing or cannot be decoded
+ * becomes a placeholder and a warning. A deck over a limit is refused with EXPORT_LIMIT.
  */
 export async function renderPdf(
   outline: DeckOutline,
   images: Map<string, Uint8Array>,
+  options: { limits?: Partial<Limits>; now?: () => number } = {},
 ): Promise<{ bytes: Uint8Array; warnings: string[] }> {
+  const limits: Limits = { ...DEFAULT_LIMITS, ...options.limits };
+  const now = options.now ?? Date.now;
+  const started = now();
+  const tick = () => {
+    if (now() - started > limits.maxMillis) fail("EXPORT_LIMIT", `the export took longer than ${limits.maxMillis} ms`);
+  };
+  checkDeckSize(outline, limits);
   const theme = checkTheme(outline.theme);
   const color = (token: ColorToken) => hex(theme.colors[token]);
   const doc = await PDFDocument.create();
@@ -43,10 +53,31 @@ export async function renderPdf(
     boldItalic: await doc.embedFont(StandardFonts.HelveticaBoldOblique),
   };
   const warnings: string[] = [];
+  const embedded = new Map<string, PDFImage | undefined>();
+  let imageBytes = 0;
+
+  /** Each image is embedded once, however many elements use it. */
+  async function embed(src: string, slideNumber: number): Promise<PDFImage | undefined> {
+    if (embedded.has(src)) return embedded.get(src);
+    const bytes = isBlobRef(src) ? images.get(src) : undefined;
+    let image: PDFImage | undefined;
+    if (bytes) {
+      imageBytes += bytes.length;
+      if (imageBytes > limits.maxTotalImageBytes) fail("EXPORT_LIMIT", `the deck images are over ${limits.maxTotalImageBytes} bytes`, slideNumber);
+      if (bytes.length > limits.maxImageBytes) fail("EXPORT_LIMIT", `an image is over ${limits.maxImageBytes} bytes`, slideNumber);
+      if (tooManyPixels(bytes, limits)) fail("EXPORT_LIMIT", `an image is over ${limits.maxImagePixels} pixels`, slideNumber);
+      image = await (bytes[0] === 0x89 ? doc.embedPng(bytes) : doc.embedJpg(bytes)).catch(() => undefined);
+    }
+    embedded.set(src, image);
+    return image;
+  }
 
   for (const slide of outline.slides) {
+    tick();
     const page = doc.addPage([SLIDE_WIDTH, SLIDE_HEIGHT]);
     const lost = new Set<string>();
+    let cut = 0;
+    let missingImages = 0;
     const safe = (text: string): string =>
       [...text].map((ch) => {
         // The font encodes a character it cannot draw as "?" (0x3F) and does not throw.
@@ -76,7 +107,9 @@ export async function renderPdf(
     const drawText = (e: Extract<Element, { kind: "text" }>) => {
       const lines = wrap(e.runs, e.w - (e.list ? e.fontSize : 0), e.fontSize, e.slot === "title");
       const step = e.fontSize * LINE_HEIGHT;
-      lines.slice(0, Math.floor(e.h / step)).forEach((words, i) => {
+      const allowed = Math.floor(e.h / step);
+      cut += Math.max(0, lines.length - allowed);
+      lines.slice(0, allowed).forEach((words, i) => {
         const baseline = top(e.y + i * step, 0) - e.fontSize;
         let x = e.x + (e.list ? e.fontSize : 0);
         if (e.list) page.drawText("•", { x: e.x, y: baseline, size: e.fontSize, font: fonts.regular, color: color(e.color) });
@@ -90,7 +123,9 @@ export async function renderPdf(
     const drawTable = (e: Extract<Element, { kind: "table" }>) => {
       const columns = Math.max(1, ...e.rows.map((r) => r.length));
       const cell = e.w / columns;
-      e.rows.slice(0, Math.floor(e.h / ROW_HEIGHT)).forEach((row, r) => {
+      const allowed = Math.floor(e.h / ROW_HEIGHT);
+      cut += Math.max(0, e.rows.length - allowed);
+      e.rows.slice(0, allowed).forEach((row, r) => {
         row.forEach((text, c) => {
           const x = e.x + c * cell;
           const y = top(e.y + r * ROW_HEIGHT, ROW_HEIGHT);
@@ -101,15 +136,19 @@ export async function renderPdf(
     };
 
     const drawImage = async (e: Extract<Element, { kind: "image" }>) => {
-      const bytes = images.get(e.src) ?? fail("IMAGE_MISSING", `image "${e.src}" is not in the blob store`, slide.index);
-      const png = bytes[0] === 0x89;
-      const image = png ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+      const image = await embed(e.src, slide.index);
+      if (!image) {
+        missingImages++;
+        page.drawRectangle({ x: e.x, y: top(e.y, e.h), width: e.w, height: e.h, color: color("surface"), borderColor: color("muted"), borderWidth: 2 });
+        return;
+      }
       const scale = Math.min(e.w / image.width, e.h / image.height);
       const [w, h] = [image.width * scale, image.height * scale];
       page.drawImage(image, { x: e.x + (e.w - w) / 2, y: top(e.y + (e.h - h) / 2, h), width: w, height: h });
     };
 
     for (const e of slide.elements) {
+      tick();
       if (e.kind === "shape") {
         const box = { color: color(e.fill) };
         if (e.shape === "ellipse") page.drawEllipse({ x: e.x + e.w / 2, y: top(e.y, e.h) + e.h / 2, xScale: e.w / 2, yScale: e.h / 2, ...box });
@@ -118,6 +157,8 @@ export async function renderPdf(
       else if (e.kind === "table") drawTable(e);
       else await drawImage(e);
     }
+    if (cut > 0) warnings.push(`slide ${slide.index}: text cut to fit the box, ${cut} line(s) not drawn`);
+    if (missingImages > 0) warnings.push(`slide ${slide.index}: image unavailable, drew a placeholder`);
     if (lost.size > 0) warnings.push(`slide ${slide.index}: replaced unsupported characters ${[...lost].map((c) => JSON.stringify(c)).join(" ")} with "?"`);
   }
   return { bytes: await doc.save({ useObjectStreams: false }), warnings };

@@ -1,5 +1,5 @@
-import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDFDocument } from "@cantoo/pdf-lib";
@@ -22,6 +22,16 @@ function run(args: string[], options: { input?: string; env?: Record<string, str
     env: { PATH: process.env.PATH, ...options.env },
   });
   return { code: result.status, out: result.stdout, err: result.stderr };
+}
+
+function runAsync(args: string[], input: string): Promise<{ code: number | null; err: string }> {
+  return new Promise((done) => {
+    const child = spawn("node", [CLI, ...args], { cwd: work, env: { PATH: process.env.PATH } });
+    let err = "";
+    child.stderr.on("data", (d) => (err += d));
+    child.on("close", (code) => done({ code, err }));
+    child.stdin.end(input);
+  });
 }
 
 const json = (text: string) => JSON.parse(text) as Record<string, any>;
@@ -119,11 +129,13 @@ describe("slides CLI", () => {
   });
 
   test("a file that is not an image is refused and nothing is stored", () => {
-    run(["new", "Img", "--id", "img", "--as", AGENT]);
+    const env = { SLIDES_DIR: join(work, "fake-store") };
+    run(["new", "Img", "--id", "img", "--as", AGENT], { env });
     mkdirSync(join(work, "pics"), { recursive: true });
     writeFileSync(join(work, "pics", "fake.png"), "<svg onload=alert(1)>");
-    const result = run(["add", "img", "--outline", "-", "--as", AGENT], { input: "# P\n![x](pics/fake.png)" });
+    const result = run(["add", "img", "--outline", "-", "--as", AGENT], { input: "# P\n![x](pics/fake.png)", env });
     expect(json(result.err).error.code).toBe("UNSUPPORTED_IMAGE");
+    expect(existsSync(join(work, "fake-store", "blobs")) ? readdirSync(join(work, "fake-store", "blobs")) : []).toEqual([]);
   });
 
   test("characters the PDF font cannot draw are reported, not hidden", () => {
@@ -140,5 +152,68 @@ describe("slides CLI", () => {
     expect(run(["new", "Env", "--id", "env"], { env }).code).toBe(0);
     const outline = json(run(["outline", "env"], { env }).out);
     expect(outline).toMatchObject({ editedBy: { kind: "human" }, machineMade: false });
+  });
+
+  test("a bad outline with a valid image leaves no blob behind", () => {
+    const env = { SLIDES_DIR: join(work, "orphan-store") };
+    run(["new", "Orphan", "--id", "orphan", "--as", AGENT], { env });
+    const result = run(["add", "orphan", "--outline", "-", "--as", AGENT], { input: "layout: zigzag\n# A\n![x](cat.png)", env });
+    expect(json(result.err).error.code).toBe("UNKNOWN_LAYOUT");
+    expect(existsSync(join(work, "orphan-store", "blobs")) ? readdirSync(join(work, "orphan-store", "blobs")) : []).toEqual([]);
+  });
+
+  test("eight processes adding at once lose no slide", async () => {
+    run(["new", "Race", "--id", "race", "--as", AGENT]);
+    const runs = await Promise.all(Array.from({ length: 8 }, (_, i) => runAsync(["add", "race", "--outline", "-", "--as", AGENT], `# S${i}`)));
+    expect(runs.map((r) => r.code)).toEqual(Array(8).fill(0));
+    const titles = json(run(["outline", "race"]).out).slides.map((s: any) => s.title).sort();
+    expect(titles).toEqual(Array.from({ length: 8 }, (_, i) => `S${i}`).sort());
+  });
+
+  test("a bad image src is a coded error and the deck stays whole", () => {
+    run(["new", "Src", "--id", "src", "--as", AGENT]);
+    run(["add", "src", "--outline", "outline.md", "--as", AGENT]);
+    const outline = json(run(["outline", "src"]).out);
+    const image = outline.slides[1].elements.find((e: any) => e.kind === "image");
+    const patch = (src: string) => run(["edit", "src", "--slide", "2", "--element", image.id, "--patch", JSON.stringify({ src }), "--as", AGENT]);
+    expect(json(patch("blob:sha256-dead").err).error.code).toBe("REMOTE_ASSET");
+    expect(json(patch("blob:../x").err).error.code).toBe("REMOTE_ASSET");
+    expect(json(patch(`blob:sha256-${"0".repeat(64)}`).err).error.code).toBe("IMAGE_MISSING");
+    expect(json(run(["add", "src", "--outline", "-", "--as", AGENT], { input: "layout: image-right\n# a\n![x](blob:a/b)" }).err).error.code).toBe("IMAGE_MISSING");
+    expect(run(["render", "src", "--out", join(work, "src.html")]).code).toBe(0);
+    expect(json(run(["export", "src", "--out", join(work, "src.pdf")]).out).warnings).toEqual([]);
+  });
+
+  test("a patch that is not an object is a coded error", () => {
+    run(["new", "Patch", "--id", "patch", "--as", AGENT]);
+    run(["add", "patch", "--outline", "-", "--as", AGENT], { input: "# T" });
+    const id = json(run(["outline", "patch"]).out).slides[0].elements.find((e: any) => e.slot === "title").id;
+    for (const bad of ["null", "[]", '{"alt":5}']) {
+      expect(json(run(["edit", "patch", "--slide", "1", "--element", id, "--patch", bad, "--as", AGENT]).err).error.code).toBe("BAD_PATCH");
+    }
+  });
+
+  test("an outline can read images only from its own folder", () => {
+    run(["new", "Sandbox", "--id", "sandbox", "--as", AGENT]);
+    mkdirSync(join(work, "docs"), { recursive: true });
+    writeFileSync(join(work, "docs", "in.md"), "layout: image-right\n# a\n![x](../cat.png)");
+    const outside = run(["add", "sandbox", "--outline", "docs/in.md", "--as", AGENT]);
+    expect(json(outside.err).error.code).toBe("IMAGE_MISSING");
+    writeFileSync(join(work, "docs", "abs.md"), `layout: image-right\n# a\n![x](${join(work, "cat.png")})`);
+    expect(json(run(["add", "sandbox", "--outline", "docs/abs.md", "--as", AGENT]).err).error.code).toBe("IMAGE_MISSING");
+    symlinkSync("/dev/zero", join(work, "docs", "zero.png"));
+    writeFileSync(join(work, "docs", "zero.md"), "layout: image-right\n# a\n![x](zero.png)");
+    expect(json(run(["add", "sandbox", "--outline", "docs/zero.md", "--as", AGENT]).err).error.code).toBe("IMAGE_MISSING");
+    writeFileSync(join(work, "docs", "big.png"), Buffer.concat([PNG, Buffer.alloc(11 * 1024 * 1024)]));
+    writeFileSync(join(work, "docs", "big.md"), "layout: image-right\n# a\n![x](big.png)");
+    expect(json(run(["add", "sandbox", "--outline", "docs/big.md", "--as", AGENT]).err).error.code).toBe("UNSUPPORTED_IMAGE");
+    writeFileSync(join(work, "docs", "ok.md"), "layout: image-right\n# a\n![x](../cat.png)");
+  });
+
+  test("a title that wraps past its box is reported, not silently cut", () => {
+    run(["new", "Wide", "--id", "wide", "--as", AGENT]);
+    run(["add", "wide", "--outline", "-", "--as", AGENT], { input: `# ${Array(4).fill("W".repeat(10)).join(" ")}` });
+    const exported = json(run(["export", "wide", "--out", join(work, "wide.pdf")]).out);
+    expect(exported.warnings.join(" ")).toMatch(/slide 1.*cut/);
   });
 });

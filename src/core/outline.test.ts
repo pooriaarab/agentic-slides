@@ -102,9 +102,9 @@ describe("outline success", () => {
   });
 
   test("builds a table and an image", () => {
-    const [table, image] = compileOutline("# T\n|a|b|\n|1|2|\n---\n# I\n![A cat](cat.png)", { "cat.png": "blob:k1" });
+    const [table, image] = compileOutline("# T\n|a|b|\n|1|2|\n---\n# I\n![A cat](cat.png)", { "cat.png": `blob:sha256-${"1".repeat(64)}` });
     expect(table!.elements.find((e) => e.kind === "table")).toMatchObject({ rows: [["a", "b"], ["1", "2"]] });
     expect(image!.layout).toBe("image-right");
-    expect(image!.elements.find((e) => e.kind === "image")).toMatchObject({ src: "blob:k1", alt: "A cat" });
+    expect(image!.elements.find((e) => e.kind === "image")).toMatchObject({ src: `blob:sha256-${"1".repeat(64)}`, alt: "A cat" });
   });
 });

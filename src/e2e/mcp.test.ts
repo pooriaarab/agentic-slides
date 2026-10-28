@@ -69,4 +69,15 @@ describe("slides MCP server", () => {
     expect(Buffer.from(pdf.pdfBase64, "base64").subarray(0, 5).toString()).toBe("%PDF-");
     expect(pdf.warnings).toEqual([]);
   });
+
+  test("a server started as a human refuses to start", () => {
+    const result = spawnSync("node", [join(process.cwd(), "dist", "mcp-bin.js")], {
+      cwd: work,
+      input: "",
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, SLIDES_DIR: join(work, ".slides"), SLIDES_AUTHOR: "human:ada" },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("INVALID_AUTHOR");
+  });
 });

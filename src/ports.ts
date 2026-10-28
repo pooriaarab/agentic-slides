@@ -11,6 +11,12 @@ export interface Store {
   put<T extends Doc = Doc>(collection: string, id: string, doc: T): Promise<void>;
   /** Deleting a missing doc is not an error. */
   delete(collection: string, id: string): Promise<void>;
+  /**
+   * Run `fn` while no other caller changes this doc, in this process or in another one
+   * that shares the backing data. A read inside `fn` sees every earlier write. A store
+   * that cannot take the lock in time throws; it never runs `fn` unlocked.
+   */
+  exclusive<R>(collection: string, id: string, fn: () => Promise<R>): Promise<R>;
 }
 
 export interface BlobObject {

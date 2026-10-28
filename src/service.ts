@@ -3,14 +3,15 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { fromBase64, toBase64 } from "lib0/buffer";
 import { Deck, type DeckOutline, type ElementPatch } from "./core/deck.js";
 import { isLayout, LAYOUT_NAMES, type LayoutName } from "./core/layouts.js";
+import { checkImageSrc, isBlobRef } from "./core/model.js";
 import { fail, type Principal } from "./core/principal.js";
+import { DEFAULT_LIMITS, checkDeckSize, tooManyPixels, type Limits } from "./export/limits.js";
 import { renderPdf } from "./export/pdf.js";
 import type { Blobs, Store } from "./ports.js";
 import { renderDeck } from "./render/html.js";
 import { renderPresent } from "./render/present.js";
 
 const COLLECTION = "decks";
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /** A slide by id, or by 1-based position when the text is all digits. Slide ids start with a letter. */
 export type SlideSel = string | number;
@@ -29,7 +30,8 @@ export interface Ports {
 }
 
 /** The operations behind the CLI, the MCP server, and the HTTP API. Slide positions are 1-based here. */
-export function createService({ store, blobs }: Ports) {
+export function createService({ store, blobs }: Ports, overrides: Partial<Limits> = {}) {
+  const limits: Limits = { ...DEFAULT_LIMITS, ...overrides };
   async function load(id: string): Promise<Deck> {
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id)) fail("INVALID_ID", `"${id}" is not a valid deck id`);
     const saved = await store.get<{ update: string }>(COLLECTION, id);
@@ -40,35 +42,56 @@ export function createService({ store, blobs }: Ports) {
     await store.put(COLLECTION, id, { update: toBase64(deck.encode()), title: deck.outline().title });
   }
 
-  async function mutate<R>(id: string, fn: (deck: Deck) => R): Promise<R> {
-    const deck = await load(id);
-    const result = fn(deck);
-    await save(id, deck);
-    return result;
+  /**
+   * Load the deck under the doc's lock, so the load sees every earlier save, run `fn`,
+   * then `after` (blob writes: only once the edit has passed), then save.
+   */
+  async function mutate<R>(id: string, fn: (deck: Deck) => R, after?: () => Promise<void>): Promise<R> {
+    return store.exclusive(COLLECTION, id, async () => {
+      const deck = await load(id);
+      const result = fn(deck);
+      await after?.();
+      await save(id, deck);
+      return result;
+    });
   }
 
-  /** Store each image once under its content hash. Returns the outline path -> blob key map. */
-  async function storeImages(outline: string, files: Record<string, Uint8Array> = {}): Promise<Record<string, string>> {
+  /**
+   * Work out the blob key of each image file and the outline path -> blob ref map, without
+   * writing. `write` stores the new blobs, so the caller can do it after the edit passes.
+   */
+  async function prepareImages(outline: string, files: Record<string, Uint8Array> = {}) {
     const map: Record<string, string> = {};
+    const pending: { key: string; data: Uint8Array; contentType: string }[] = [];
     for (const [path, data] of Object.entries(files)) {
-      if (data.length > MAX_IMAGE_BYTES) fail("UNSUPPORTED_IMAGE", `image "${path}" is over ${MAX_IMAGE_BYTES} bytes`);
+      if (data.length > limits.maxImageBytes) fail("UNSUPPORTED_IMAGE", `image "${path}" is over ${limits.maxImageBytes} bytes`);
       const contentType = sniff(data);
+      if (tooManyPixels(data, limits)) fail("UNSUPPORTED_IMAGE", `image "${path}" is over ${limits.maxImagePixels} pixels`);
       const key = `sha256-${bytesToHex(sha256(data))}`;
-      await blobs.put(key, data, { contentType });
+      pending.push({ key, data, contentType });
       map[path] = `blob:${key}`;
     }
     for (const match of outline.matchAll(/\]\((blob:[^)\s]+)\)/g)) {
-      if (await blobs.get(match[1]!.slice(5))) map[match[1]!] = match[1]!;
+      if (isBlobRef(match[1]) && (await blobs.get(match[1].slice(5)))) map[match[1]] = match[1];
     }
-    return map;
+    const write = async () => {
+      for (const { key, data, contentType } of pending) await blobs.put(key, data, { contentType });
+    };
+    return { map, write };
   }
 
+  /** The bytes of each image the deck uses. An image missing from the store is left out, so it renders as a placeholder. */
   async function imageBytes(outline: DeckOutline): Promise<Map<string, { data: Uint8Array; contentType?: string }>> {
     const found = new Map<string, { data: Uint8Array; contentType?: string }>();
+    let total = 0;
     for (const slide of outline.slides) {
       for (const e of slide.elements) {
-        if (e.kind !== "image" || found.has(e.src)) continue;
-        found.set(e.src, (await blobs.get(e.src.slice(5))) ?? fail("IMAGE_MISSING", `image "${e.src}" is not in the blob store`, slide.index));
+        if (e.kind !== "image" || found.has(e.src) || !isBlobRef(e.src)) continue;
+        const image = await blobs.get(e.src.slice(5));
+        if (!image) continue;
+        total += image.data.length;
+        if (total > limits.maxTotalImageBytes) fail("EXPORT_LIMIT", `the deck images are over ${limits.maxTotalImageBytes} bytes`);
+        found.set(e.src, image);
       }
     }
     return found;
@@ -78,8 +101,10 @@ export function createService({ store, blobs }: Ports) {
     async create(input: { title: string; author: Principal; id?: string }): Promise<{ id: string }> {
       const id = input.id ?? `d${bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(5)))}`;
       if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id)) fail("INVALID_ID", `"${id}" is not a valid deck id`);
-      if (await store.get(COLLECTION, id)) fail("DECK_EXISTS", `deck "${id}" exists`);
-      await save(id, Deck.create({ title: input.title, author: input.author }));
+      await store.exclusive(COLLECTION, id, async () => {
+        if (await store.get(COLLECTION, id)) fail("DECK_EXISTS", `deck "${id}" exists`);
+        await save(id, Deck.create({ title: input.title, author: input.author }));
+      });
       return { id };
     },
 
@@ -98,16 +123,19 @@ export function createService({ store, blobs }: Ports) {
         if (!isLayout(layout)) fail("UNKNOWN_LAYOUT", `unknown layout "${layout}". Use one of: ${LAYOUT_NAMES.join(", ")}`);
         return { slideIds: [await mutate(id, (d) => d.addSlide({ layout: layout as LayoutName, at }, input.author))] };
       }
-      const images = await storeImages(input.outline, input.images);
-      return { slideIds: await mutate(id, (d) => d.addSlidesFromOutline(input.outline!, { author: input.author, images, at })) };
+      const { map: images, write } = await prepareImages(input.outline, input.images);
+      return { slideIds: await mutate(id, (d) => d.addSlidesFromOutline(input.outline!, { author: input.author, images, at }), write) };
     },
 
     async setSlide(id: string, slide: SlideSel, input: { outline: string; images?: Record<string, Uint8Array>; author: Principal }): Promise<void> {
-      const images = await storeImages(input.outline, input.images);
-      await mutate(id, (d) => d.setSlideFromOutline(slideRef(slide), input.outline, { author: input.author, images }));
+      const { map: images, write } = await prepareImages(input.outline, input.images);
+      await mutate(id, (d) => d.setSlideFromOutline(slideRef(slide), input.outline, { author: input.author, images }), write);
     },
 
     async editElement(id: string, slide: SlideSel, elementId: string, patch: ElementPatch, author: Principal): Promise<void> {
+      if (typeof patch?.src === "string" && !(await blobs.get(checkImageSrc(patch.src).slice(5)))) {
+        fail("IMAGE_MISSING", `image "${patch.src}" is not in the blob store`);
+      }
       await mutate(id, (d) => d.editElement(slideRef(slide), elementId, patch, author));
     },
 
@@ -119,21 +147,29 @@ export function createService({ store, blobs }: Ports) {
       await mutate(id, (d) => d.deleteSlide(slideRef(slide), author));
     },
 
-    /** One self-contained HTML page: images are inlined, so the file opens anywhere. */
+    /** One self-contained HTML page: images are inlined, so the file opens anywhere. A missing image is a placeholder. */
     async render(id: string, options: { present?: boolean } = {}): Promise<string> {
       const outline = (await load(id)).outline();
+      checkDeckSize(outline, limits);
       const images = await imageBytes(outline);
+      const uses = outline.slides.flatMap((s) => s.elements).filter((e) => e.kind === "image");
+      const inlined = uses.reduce((sum, e) => sum + (images.get(e.src)?.data.length ?? 0), 0);
+      if (inlined > limits.maxRenderBytes) fail("EXPORT_LIMIT", `the page would inline ${inlined} bytes of images, the limit is ${limits.maxRenderBytes}`);
+      const urls = new Map<string, string>();
       const imageUrl = (key: string) => {
-        const image = images.get(key)!;
-        return `data:${image.contentType ?? sniff(image.data)};base64,${toBase64(image.data)}`;
+        const image = images.get(key);
+        if (!image) return undefined;
+        if (!urls.has(key)) urls.set(key, `data:${image.contentType ?? sniff(image.data)};base64,${toBase64(image.data)}`);
+        return urls.get(key);
       };
       return (options.present ? renderPresent : renderDeck)(outline, { imageUrl });
     },
 
     async exportPdf(id: string): Promise<{ bytes: Uint8Array; warnings: string[] }> {
       const outline = (await load(id)).outline();
+      checkDeckSize(outline, limits);
       const images = await imageBytes(outline);
-      return renderPdf(outline, new Map([...images].map(([key, image]) => [key, image.data])));
+      return renderPdf(outline, new Map([...images].map(([key, image]) => [key, image.data])), { limits });
     },
   };
 }
