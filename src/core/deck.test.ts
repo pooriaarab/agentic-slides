@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { Deck } from "./deck.js";
 import { SlidesError, type Principal, type SlidesErrorCode } from "./principal.js";
+import { compileOutline } from "./outline.js";
 
 // Ways the ops can fail, written before the code. Each must throw a coded
 // SlidesError and leave the deck as it was.
@@ -146,5 +147,118 @@ describe("sync", () => {
     copy.applyUpdate(deck.encode());
     expect(copy.outline()).toEqual(deck.outline());
     expect(deck.outline().slides.map((s) => s.editedBy.kind)).toEqual(["human", "agent", "human"]);
+  });
+});
+
+// Two Y.Docs that start equal, edit apart, then exchange updates.
+function pair() {
+  const { deck, ids } = sample();
+  const copy = Deck.fromUpdate(deck.encode());
+  const sync = () => {
+    deck.applyUpdate(copy.encode());
+    copy.applyUpdate(deck.encode());
+    expect(copy.outline()).toEqual(deck.outline());
+    return deck.outline();
+  };
+  return { deck, copy, ids, sync };
+}
+const titleOf = (d: Deck, id: string) => d.outline().slides.find((s) => s.id === id)!.elements.find((e) => e.kind === "text")!;
+const textOf = (d: Deck, id: string) => {
+  const el = titleOf(d, id);
+  return el.kind === "text" ? el.runs.map((r) => r.text).join("") : "";
+};
+
+describe("concurrent edits to one slide", () => {
+  test("a rewrite of the same text by two writers keeps one of them, never both", () => {
+    const { deck, copy, ids, sync } = pair();
+    const el = titleOf(deck, ids[0]!);
+    deck.editElement(ids[0]!, el.id, { text: "from human" }, human);
+    copy.editElement(ids[0]!, el.id, { text: "from agent" }, agent);
+    sync();
+    expect(["from human", "from agent"]).toContain(textOf(deck, ids[0]!));
+  });
+
+  test("edits to different words of one text both survive", () => {
+    const { deck, copy, ids, sync } = pair();
+    const el = titleOf(deck, ids[0]!);
+    deck.editElement(ids[0]!, el.id, { text: "Quarterly plan for launch" }, human);
+    copy.applyUpdate(deck.encode());
+    deck.editElement(ids[0]!, el.id, { text: "Annual plan for launch" }, human);
+    copy.editElement(ids[0]!, el.id, { text: "Quarterly plan for release" }, agent);
+    sync();
+    expect(textOf(deck, ids[0]!)).toBe("Annual plan for release");
+  });
+
+  test("bold marks follow a text edit", () => {
+    const { deck, ids } = pair();
+    const el = titleOf(deck, ids[0]!);
+    deck.editElement(ids[0]!, el.id, { text: "A **bold** claim" }, human);
+    deck.editElement(ids[0]!, el.id, { text: "A claim, **bold**" }, human);
+    expect(titleOf(deck, ids[0]!)).toMatchObject({ runs: [{ text: "A claim, " }, { text: "bold", bold: true }] });
+  });
+
+  test("two writers moving one slide leave one copy of it", () => {
+    const { deck, copy, ids, sync } = pair();
+    deck.moveSlide(ids[0]!, 2, human);
+    copy.moveSlide(ids[0]!, 1, agent);
+    const merged = sync();
+    expect([...merged.slides.map((s) => s.id)].sort()).toEqual([...ids].sort());
+    expect(merged.slides.map((s) => s.index)).toEqual([1, 2, 3]);
+  });
+
+  test("an edit made while another writer moves the slide is kept", () => {
+    const { deck, copy, ids, sync } = pair();
+    const el = titleOf(deck, ids[0]!);
+    deck.moveSlide(ids[0]!, 2, human);
+    copy.editElement(ids[0]!, el.id, { text: "kept" }, agent);
+    const merged = sync();
+    expect(merged.slides.map((s) => s.id)).toEqual([ids[1], ids[2], ids[0]]);
+    expect(textOf(deck, ids[0]!)).toBe("kept");
+  });
+
+  test("a slide deleted by one writer and moved by another stays deleted", () => {
+    const { deck, copy, ids, sync } = pair();
+    deck.deleteSlide(ids[1]!, human);
+    copy.moveSlide(ids[1]!, 0, agent);
+    const merged = sync();
+    expect(merged.slides.map((s) => s.id)).toEqual([ids[0], ids[2]]);
+    expect(deck.addSlide({ at: 1 }, human)).toBeTruthy();
+    expect(deck.outline().slides).toHaveLength(3);
+  });
+
+  test("speaker notes written by two writers keep one of them", () => {
+    const { deck, copy, ids, sync } = pair();
+    deck.setSlideFromOutline(ids[0]!, "# One\n> note by human", { author: human });
+    copy.setSlideFromOutline(ids[0]!, "# One\n> note by agent", { author: agent });
+    const merged = sync();
+    expect(["note by human", "note by agent"]).toContain(merged.slides[0]!.notes);
+  });
+});
+
+describe("bad data", () => {
+  test("patch values of the wrong type are coded errors", () => {
+    const { deck, ids } = sample();
+    const el = titleOf(deck, ids[0]!);
+    for (const bad of [{ text: 5 }, { alt: 5 }, { src: 5 }, { x: null }, { x: "5" }, null, [], "x"]) {
+      expect(codeOf(() => deck.editElement(ids[0]!, el.id, bad as never, human))).toMatch(/BAD_PATCH|OUT_OF_BOUNDS/);
+    }
+  });
+
+  test("an outline image named like an inherited property is missing, not a crash", () => {
+    for (const path of ["constructor", "__proto__", "toString"]) {
+      expect(() => compileOutline(`layout: image-right\n# a\n![x](${path})`, {})).toThrow(/was not found/);
+    }
+  });
+
+  test("a doc from a peer with no author data reads as machine-made", () => {
+    const { deck, ids } = sample();
+    deck.doc.getMap("deck").delete("editedBy");
+    const slide = (deck.doc.getMap("slides") as import("yjs").Map<import("yjs").Map<unknown>>).get(ids[0]!)!;
+    slide.delete("createdBy");
+    slide.delete("editedBy");
+    const outline = deck.outline();
+    expect(outline.machineMade).toBe(true);
+    expect(outline.slides[0]).toMatchObject({ machineMade: true });
+    expect(outline.slides[1]).toMatchObject({ machineMade: false });
   });
 });

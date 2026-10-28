@@ -88,7 +88,7 @@ function compileSlide(lines: string[], number: number, images: Record<string, st
   if (image) {
     if (!imageSlot) problem("NO_SLOT", `layout "${layout}" has no image box`);
     else if (REMOTE.test(image.path)) problem("REMOTE_ASSET", `image "${image.path}" is a network address. Add the file to the asset store instead`);
-    else if (images[image.path] === undefined) problem("IMAGE_MISSING", `image "${image.path}" was not found`);
+    else if (!Object.hasOwn(images, image.path) || typeof images[image.path] !== "string") problem("IMAGE_MISSING", `image "${image.path}" was not found`);
     else src = checkImageSrc(images[image.path]!);
   }
   if (issues.length > before) return undefined;

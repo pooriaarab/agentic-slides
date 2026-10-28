@@ -47,13 +47,22 @@ export const fail = (code: SlidesErrorCode, message: string, slide?: number): ne
 /** Content by an agent principal, or by a user token (tagged "via agent"), is machine-made. */
 export const isMachineMade = (kind: PrincipalKind): boolean => kind !== "human";
 
-export function checkAuthor(author: Principal): Principal {
-  const ok =
+const isPrincipal = (value: unknown): value is Principal => {
+  const author = value as Principal | null | undefined;
+  return (
     typeof author === "object" &&
     author !== null &&
     PRINCIPAL_KINDS.includes(author.kind) &&
     typeof author.name === "string" &&
-    author.name.trim() !== "";
-  if (!ok) fail("INVALID_AUTHOR", `author needs a kind (${PRINCIPAL_KINDS.join(", ")}) and a name`);
+    author.name.trim() !== ""
+  );
+};
+
+export function checkAuthor(author: Principal): Principal {
+  if (!isPrincipal(author)) fail("INVALID_AUTHOR", `author needs a kind (${PRINCIPAL_KINDS.join(", ")}) and a name`);
   return { kind: author.kind, name: author.name };
 }
+
+/** Read an author from stored data. Missing or unknown data reads as an agent, so it is labeled machine-made. */
+export const readPrincipal = (value: unknown): Principal =>
+  isPrincipal(value) ? { kind: value.kind, name: value.name } : { kind: "agent", name: "unknown" };

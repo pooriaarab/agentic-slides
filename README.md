@@ -53,7 +53,13 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 
 - Text fit is an estimate from font size and box size. It is the same on every run.
 - An image must be a stored blob. A network address is refused.
-- Moving a slide copies it. A concurrent edit to the same slide can be lost.
+- Setting a slide from an outline replaces all of its elements. Element ids change,
+  and a box or a shape you added by hand is gone. A concurrent edit to the old
+  elements is lost. Use `editElement` to change one element in place.
+- Two writers who rewrite the same text with nothing in common at the same time keep
+  one rewrite. Edits to different parts of a text both survive. Two writers who
+  insert at the same spot both keep their text.
+- Moving a slide changes only the order. Two writers who move one slide leave one copy.
 - Elements cannot be added or deleted one by one yet.
 
 ## Develop
