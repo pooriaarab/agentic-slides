@@ -14,6 +14,7 @@ and speaker notes. All positions use one 1280 by 720 space.
 - `src/core/layouts.ts`: layouts, the theme, and the text-fit estimate.
 - `src/core/model.ts`: element types and inline marks.
 - `src/core/principal.ts`: author kinds and error codes.
+- `src/render/html.ts`, `src/render/present.ts`: deck and present pages. Escape all text. Load nothing remote.
 
 ## Rules
 
