@@ -28,6 +28,7 @@ export type SlidesErrorCode =
   | "INVALID_ID"
   | "UNSUPPORTED_IMAGE"
   | "EXPORT_LIMIT"
+  | "TOO_LARGE"
   | "STORE_BUSY";
 
 export interface Issue {

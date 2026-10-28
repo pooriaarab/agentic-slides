@@ -3,12 +3,16 @@ import { createApp } from "./api.js";
 import { parseTokens, tokenAuth } from "./auth.js";
 import { createService } from "./service.js";
 import { MemoryBlobs, MemoryStore } from "./store/memory.js";
+import { DEFAULT_LIMITS } from "./export/limits.js";
+import { decodeImages } from "./schemas.js";
+import { PRESENT_CSP } from "./render/present.js";
+import { CSP } from "./render/html.js";
 import worker from "./worker.js";
 
 // Ways the API can fail, on the real app and the real service over a memory store.
 // The wrangler E2E in src/e2e/worker.test.ts covers the full flow in a Worker runtime.
-const HUMAN = "human-token-0123456789";
-const AGENT = "agent-token-0123456789";
+const HUMAN = "human-token-0123456789-abcdefghij";
+const AGENT = "agent-token-0123456789-abcdefghij";
 const TOKENS = `${HUMAN}=human:ada,${AGENT}=agent_of_human:bot`;
 const BASE = "http://slides.test/api/v1/slides";
 
@@ -61,11 +65,16 @@ describe("auth fails closed", () => {
     },
   );
 
+  test("a token needs 32 characters: 31 is refused and 32 is accepted", () => {
+    expect(() => parseTokens(`${"a".repeat(31)}=human:ada`)).toThrow();
+    expect(parseTokens(`${"a".repeat(32)}=human:ada`)).toHaveLength(1);
+  });
+
   test("the Worker answers 500 MISCONFIGURED, not open access, on a bad token setting", async () => {
-    const response = await worker.fetch(new Request(`${BASE}/decks/x`, { headers: { authorization: "Bearer short" } }), { SLIDES_TOKENS: "short=human:ada" });
+    const response = await worker.fetch(new Request(`${BASE}/decks/x`, { headers: { authorization: "Bearer short" } }), { SLIDES_TOKENS: "short=human:ada", SLIDES_UNSAFE_MEMORY_STORE: "1" });
     expect(response.status).toBe(500);
     expect(JSON.stringify(await response.json())).toContain("MISCONFIGURED");
-    expect((await worker.fetch(new Request("http://slides.test/health"), { SLIDES_TOKENS: "short=human:ada" })).status).toBe(200);
+    expect((await worker.fetch(new Request("http://slides.test/health"), { SLIDES_TOKENS: "short=human:ada", SLIDES_UNSAFE_MEMORY_STORE: "1" })).status).toBe(200);
   });
 });
 
@@ -112,5 +121,77 @@ describe("bad requests", () => {
     const response = await appFor()("GET", "/decks/x");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+});
+
+describe("the Worker is a stopgap", () => {
+  test("it refuses every request, health included, until the in-memory store is chosen on purpose", async () => {
+    for (const path of ["/health", "/api/v1/slides/decks/x"]) {
+      const response = await worker.fetch(new Request(`http://slides.test${path}`, { headers: { authorization: `Bearer ${HUMAN}` } }), { SLIDES_TOKENS: `${HUMAN}=human:ada` });
+      expect(response.status).toBe(500);
+      expect(JSON.stringify(await response.json())).toContain("MISCONFIGURED");
+    }
+    const on = await worker.fetch(new Request("http://slides.test/health"), { SLIDES_TOKENS: `${HUMAN}=human:ada`, SLIDES_UNSAFE_MEMORY_STORE: "1" });
+    expect(on.status).toBe(200);
+  });
+});
+
+describe("export and render", () => {
+  async function deckWithCjkTitles(call: ReturnType<typeof appFor>, slides: number) {
+    await call("POST", "/decks", { token: HUMAN, body: { title: "T", id: "t" } });
+    const outline = Array.from({ length: slides }, (_, i) => `# ${Array.from({ length: 40 }, (_, j) => String.fromCodePoint(0x4e00 + i * 40 + j)).join("")}`).join("\n---\n");
+    expect((await call("POST", "/decks/t/slides", { token: HUMAN, body: { outline } })).status).toBe(201);
+  }
+
+  test("a deck with many replaced characters still exports, with a bounded warnings header", async () => {
+    const call = appFor();
+    await deckWithCjkTitles(call, 20);
+    const response = await call("GET", "/decks/t/export", { token: HUMAN });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("x-slides-warnings-count")).toBe("20");
+    expect(response.headers.get("x-slides-warnings")!.length).toBeLessThanOrEqual(1100);
+    expect(JSON.parse(decodeURIComponent(response.headers.get("x-slides-warnings")!)).length).toBeGreaterThan(0);
+    expect(Buffer.from(await response.arrayBuffer()).subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
+  test("the JSON envelope returns the whole warning list with the PDF", async () => {
+    const call = appFor();
+    await deckWithCjkTitles(call, 20);
+    const body = (await (await call("GET", "/decks/t/export?envelope=json", { token: HUMAN })).json()) as { pdfBase64: string; warnings: string[]; bytes: number };
+    expect(body.warnings).toHaveLength(20);
+    expect(Buffer.from(body.pdfBase64, "base64").subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
+  test("the render route sends the policy that matches the page", async () => {
+    const call = appFor();
+    await call("POST", "/decks", { token: HUMAN, body: { title: "T", id: "t" } });
+    await call("POST", "/decks/t/slides", { token: HUMAN, body: { outline: "# One\n> note" } });
+    const deck = await call("GET", "/decks/t/render", { token: HUMAN });
+    expect(deck.headers.get("content-security-policy")).toBe(CSP);
+    const present = await call("GET", "/decks/t/render?present=1", { token: HUMAN });
+    expect(present.headers.get("content-security-policy")).toBe(PRESENT_CSP);
+    expect(await present.text()).toContain(PRESENT_CSP);
+  });
+});
+
+describe("image volume", () => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64").toString("base64");
+
+  test("too many images in one request get 413, before any is decoded", async () => {
+    const call = appFor();
+    await call("POST", "/decks", { token: HUMAN, body: { title: "T", id: "t" } });
+    const images = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`i${i}.png`, png]));
+    const response = await call("POST", "/decks/t/slides", { token: HUMAN, body: { outline: "# a", images } });
+    expect(response.status).toBe(413);
+    expect(JSON.stringify(await response.json())).toContain("TOO_LARGE");
+  });
+
+  test("one image over its size, and images over the total, are refused by size alone", () => {
+    const big = "A".repeat(Math.ceil((10 * 1024 * 1024 + 1) * 4 / 3));
+    expect(() => decodeImages({ "a.png": big })).toThrow(/10485760/);
+    const medium = "A".repeat(4000);
+    expect(() => decodeImages({ a: medium, b: medium, c: medium }, { ...DEFAULT_LIMITS, maxTotalImageBytes: 8000 })).toThrow(/total/);
+    expect(Object.keys(decodeImages({ a: png }) ?? {})).toEqual(["a"]);
   });
 });

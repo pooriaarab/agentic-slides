@@ -4,7 +4,9 @@ import { z } from "zod";
 import { COMMAND } from "./brand.js";
 import { ConfigError, type Authenticator } from "./auth.js";
 import { SlidesError, type Principal, type SlidesErrorCode } from "./core/principal.js";
+import { toBase64 } from "./bytes.js";
 import { CSP } from "./render/html.js";
+import { PRESENT_CSP } from "./render/present.js";
 import { decodeImages, images, patch } from "./schemas.js";
 import type { Service } from "./service.js";
 import { VERSION } from "./version.js";
@@ -18,8 +20,21 @@ const MAX_BODY_BYTES = 32 * 1024 * 1024;
 const NOT_FOUND = new Set<SlidesErrorCode>(["NO_DECK", "NO_SLIDE", "NO_ELEMENT"]);
 const BAD_REQUEST = new Set<SlidesErrorCode>(["INVALID_ID", "BAD_PATCH", "BAD_THEME", "INVALID_AUTHOR"]);
 
-const statusOf = (code: SlidesErrorCode): 404 | 409 | 400 | 422 =>
-  NOT_FOUND.has(code) ? 404 : code === "DECK_EXISTS" ? 409 : BAD_REQUEST.has(code) ? 400 : 422;
+const statusOf = (code: SlidesErrorCode): 404 | 409 | 400 | 413 | 422 | 503 =>
+  NOT_FOUND.has(code) ? 404 : code === "DECK_EXISTS" ? 409 : code === "TOO_LARGE" ? 413 : code === "STORE_BUSY" ? 503 : BAD_REQUEST.has(code) ? 400 : 422;
+
+// The header is a summary. Full warnings come back from `?envelope=json`.
+const WARNINGS_HEADER_CHARS = 1024;
+const WARNING_CHARS = 100;
+function warningsSummary(warnings: string[]): string {
+  const shown: string[] = [];
+  for (const warning of warnings) {
+    const next = [...shown, [...warning].slice(0, WARNING_CHARS).join("")];
+    if (encodeURIComponent(JSON.stringify(next)).length > WARNINGS_HEADER_CHARS) break;
+    shown.push(next[next.length - 1]!);
+  }
+  return encodeURIComponent(JSON.stringify(shown));
+}
 
 const body = {
   create: z.object({ title: z.string().min(1).max(200), id: z.string().optional() }),
@@ -78,16 +93,19 @@ export function createApp({ service, auth }: AppDeps) {
     return c.json({ ok: true });
   });
   api.get("/decks/:deck/render", async (c) => {
-    const html = await service.render(c.req.param("deck"), { present: c.req.query("present") === "1" });
-    return c.html(html, 200, { "content-security-policy": CSP });
+    const present = c.req.query("present") === "1";
+    const html = await service.render(c.req.param("deck"), { present });
+    return c.html(html, 200, { "content-security-policy": present ? PRESENT_CSP : CSP });
   });
   api.get("/decks/:deck/export", async (c) => {
     if ((c.req.query("format") ?? "pdf") !== "pdf") return c.json(failure("BAD_REQUEST", "format must be pdf."), 400);
     const { bytes, warnings } = await service.exportPdf(c.req.param("deck"));
+    if (c.req.query("envelope") === "json") return c.json({ pdfBase64: toBase64(bytes), bytes: bytes.length, warnings });
     return c.body(bytes as Uint8Array<ArrayBuffer>, 200, {
       "content-type": "application/pdf",
       "content-disposition": 'attachment; filename="deck.pdf"',
-      "x-slides-warnings": encodeURIComponent(JSON.stringify(warnings)),
+      "x-slides-warnings-count": String(warnings.length),
+      "x-slides-warnings": warningsSummary(warnings),
     });
   });
 

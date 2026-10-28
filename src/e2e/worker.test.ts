@@ -7,8 +7,8 @@ import { PDFDocument } from "@cantoo/pdf-lib";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 // End to end: the Worker under `wrangler dev` (workerd), driven over HTTP.
-const HUMAN = "human-token-0123456789";
-const AGENT = "agent-token-0123456789";
+const HUMAN = "human-token-0123456789-abcdefghij";
+const AGENT = "agent-token-0123456789-abcdefghij";
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 let server: ChildProcess;
 let base = "";
@@ -37,7 +37,7 @@ beforeAll(async () => {
   const home = mkdtempSync(join(tmpdir(), "slides-wrangler-"));
   server = spawn(
     "npx",
-    ["wrangler", "dev", "--port", String(port), "--ip", "127.0.0.1", "--var", `SLIDES_TOKENS:${HUMAN}=human:ada,${AGENT}=agent_of_human:bot`],
+    ["wrangler", "dev", "--port", String(port), "--ip", "127.0.0.1", "--var", `SLIDES_TOKENS:${HUMAN}=human:ada,${AGENT}=agent_of_human:bot`, "--var", "SLIDES_UNSAFE_MEMORY_STORE:1"],
     { env: { ...process.env, WRANGLER_SEND_METRICS: "false", HOME: home, XDG_CONFIG_HOME: home, CI: "1" } },
   );
   server.stdout?.on("data", (chunk: Buffer) => (log += chunk));
@@ -57,7 +57,7 @@ describe("slides Worker API", () => {
   test("health answers, and the API needs a token", async () => {
     expect(await json(await fetch(`${base}/health`))).toMatchObject({ ok: true, pack: "agentic-slides" });
     expect((await call("GET", "/decks/x")).status).toBe(401);
-    expect((await call("GET", "/decks/x", { token: "wrong-token-0123456789" })).status).toBe(401);
+    expect((await call("GET", "/decks/x", { token: "wrong-token-0123456789-abcdefghij" })).status).toBe(401);
   });
 
   test("builds, edits, renders, and exports a deck", async () => {

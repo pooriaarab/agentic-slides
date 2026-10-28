@@ -16,6 +16,21 @@ export class MemoryStore implements Store {
   async delete(collection: string, id: string): Promise<void> {
     this.docs.delete(`${collection}/${id}`);
   }
+
+  private readonly queues = new Map<string, Promise<unknown>>();
+
+  /** Callers on one doc run one after another, in the order they ask. A failure does not block the next. */
+  async exclusive<R>(collection: string, id: string, fn: () => Promise<R>): Promise<R> {
+    const key = `${collection}/${id}`;
+    const run = (this.queues.get(key) ?? Promise.resolve()).then(fn);
+    const tail = run.then(() => undefined, () => undefined);
+    this.queues.set(key, tail);
+    try {
+      return await run;
+    } finally {
+      if (this.queues.get(key) === tail) this.queues.delete(key);
+    }
+  }
 }
 
 export class MemoryBlobs implements Blobs {

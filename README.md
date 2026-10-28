@@ -8,8 +8,13 @@
 Build and present slide decks with people and agents.
 
 > Status: early. The deck library, the HTML render, the CLI, the MCP server, PDF
-> export, and the HTTP API work. Decks in the Worker live in memory only. ODP and
-> PPTX export are not ready yet. The package is not on npm yet.
+> export, and the HTTP API work. ODP and PPTX export are not ready yet. The package
+> is not on npm yet.
+>
+> **The Worker is a demo, not a service.** It keeps decks in memory, per isolate. A second
+> request can reach an isolate that does not hold your deck. It refuses to start unless you
+> set `SLIDES_UNSAFE_MEMORY_STORE=1`. Any valid token can read and edit every deck: there is
+> no owner and no role yet, so do not use it for more than one tenant.
 
 ## Install
 
@@ -61,10 +66,11 @@ A Cloudflare Worker (Hono) serves `/api/v1/slides`. It mirrors the CLI. Set toke
 Each token names who edits, so a client cannot claim a different kind:
 
 ```sh
-npx wrangler dev --var 'SLIDES_TOKENS:my-long-token-0123456789=agent_of_human:bot'
+npx wrangler dev --var SLIDES_UNSAFE_MEMORY_STORE:1 \
+  --var 'SLIDES_TOKENS:my-long-token-0123456789-abcdefghij=agent_of_human:bot'
 
 curl -s -X POST localhost:8787/api/v1/slides/decks \
-  -H 'authorization: Bearer my-long-token-0123456789' -d '{"title":"Talk","id":"talk"}'
+  -H 'authorization: Bearer my-long-token-0123456789-abcdefghij' -d '{"title":"Talk","id":"talk"}'
 ```
 
 | Route | Does |
@@ -77,7 +83,8 @@ curl -s -X POST localhost:8787/api/v1/slides/decks \
 | `POST /decks/:deck/slides/:slide/move` | Move a slide (`{"to": 1}`). |
 | `DELETE /decks/:deck/slides/:slide` | Delete a slide. |
 | `GET /decks/:deck/render?present=1` | The HTML page. |
-| `GET /decks/:deck/export` | The PDF. Warnings are in `x-slides-warnings`. |
+| `GET /decks/:deck/export` | The PDF. The headers hold the warning count and the first few warnings. |
+| `GET /decks/:deck/export?envelope=json` | JSON with `pdfBase64`, `bytes`, and every warning. |
 
 `:slide` is a slide id, or a 1-based position when all digits. With no token set, every call gets 401.
 Images go in the `images` field as base64.
@@ -129,7 +136,8 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 - The deck page runs no script. The present page runs one fixed script, and its CSP names that script by hash.
 - PDF text uses Helvetica. A character outside Latin-1 becomes `?` and is listed in `warnings`. The PDF has no tags yet.
   An open font for all scripts is next on the list.
-- The Worker keeps decks in memory. They are lost when the isolate restarts. Durable adapters go behind the same `Store` and `Blobs` shapes.
+- The Worker keeps decks in memory, per isolate. Durable adapters go behind the same `Store` and `Blobs` shapes.
+- A token has 32 or more characters. A request holds at most 20 images, 10 MB each, and 32 MB in all.
 - Elements cannot be added or deleted one by one yet.
 
 ## Develop

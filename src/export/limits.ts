@@ -7,6 +7,8 @@ export interface Limits {
   /** Width times height of one image. Checked from the file header, before any decode. */
   maxImagePixels: number;
   maxImageBytes: number;
+  /** Images in one request that carries image files. */
+  maxImagesPerRequest: number;
   /** Bytes of all distinct images that one export holds in memory. */
   maxTotalImageBytes: number;
   /** Bytes of image data that one HTML page inlines, counting every use of an image. */
@@ -21,6 +23,7 @@ export const DEFAULT_LIMITS: Limits = {
   maxElements: 4000,
   maxImagePixels: 25_000_000,
   maxImageBytes: 10 * MiB,
+  maxImagesPerRequest: 20,
   maxTotalImageBytes: 64 * MiB,
   maxRenderBytes: 64 * MiB,
   maxMillis: 20_000,
