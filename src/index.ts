@@ -1,47 +1,18 @@
 export { VERSION } from "./version.js";
+export { Deck } from "./core/deck.js";
+export type { DeckOutline, ElementPatch, OutlineOptions, SlideOutline, SlideRef } from "./core/deck.js";
 export {
-  defineBrand,
-  createLogger,
-  GuardError,
-  VendorError,
-  createGuards,
-  LocalRouterAdapter,
-  HttpRouterAdapter,
-  recordCost,
-  getCostReport,
-  resetCosts,
-  createDryRunResult,
-  dispatchText,
-  summarizeText,
-} from "./core.js";
-export type {
-  BrandConfig,
-  LogLevel,
-  Logger,
-  LoggerOptions,
-  CapsConfig,
-  QuietHoursConfig,
-  GuardsConfig,
-  Guards,
-  DispatchReceipt,
-  RouterAdapter,
-  HttpRouterOptions,
-  CostEntry,
-  CostReport,
-  DispatchOptions,
-  DispatchResult,
-  TopWord,
-  TextSummary,
-  SummarizeOptions,
-} from "./core.js";
-
-import { defineBrand, type BrandConfig } from "./core.js";
-import { VERSION } from "./version.js";
-
-export const DEFAULT_BRAND: BrandConfig = defineBrand({
-  name: "Agentic pack",
-  command: "agentic-slides",
-  description: "Build and present slide decks with people and agents.",
-  keywords: ["slides","presentation","deck","collaboration","agents","mcp","cli","pptx"],
-  version: VERSION,
-});
+  COLOR_TOKENS,
+  DEFAULT_THEME,
+  LAYOUTS,
+  LAYOUT_NAMES,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  checkTheme,
+} from "./core/layouts.js";
+export type { Box, ColorToken, FontFace, LayoutName, Slot, SlotName, Theme } from "./core/layouts.js";
+export { parseInline } from "./core/model.js";
+export type { Authorship, Element, NewElement, Run, SlideContent } from "./core/model.js";
+export { compileOutline } from "./core/outline.js";
+export { PRINCIPAL_KINDS, SlidesError, isMachineMade } from "./core/principal.js";
+export type { Issue, Principal, PrincipalKind, SlidesErrorCode } from "./core/principal.js";

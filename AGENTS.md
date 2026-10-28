@@ -4,37 +4,20 @@ Build and present slide decks with people and agents.
 
 ## Mental model
 
-Text goes in. Stats or a route receipt come out. One core serves
-all three faces, so each face returns the same shape.
+A deck is a Yjs document. It holds ordered slides. A slide holds a layout, elements,
+and speaker notes. All positions use one 1280 by 720 space.
 
-## The three faces
+## Where the code lives
 
-- SDK: `import { summarizeText } from "agentic-slides"`.
-- CLI: `npx agentic-slides summary --text "..."`.
-- MCP: `npx agentic-slides mcp`, then call a tool below.
-
-Keywords: slides,presentation,deck,collaboration,agents,mcp,cli,pptx.
-
-## MCP tools
-
-| Tool | Use it for |
-| --- | --- |
-| summarize_text | Count chars, words, lines, top words. |
-| dispatch_text | Route one text. Pass dryRun to preview. |
-| get_cost_report | Read session cost totals. |
-
-## The loop
-
-1. Discover the tools with `tools/list`.
-2. Run `summarize_text` on a sample.
-3. Preview a route with `dispatch_text` and dryRun true.
-4. Run the real route when the preview looks right.
-5. Read `get_cost_report` and state the cost.
+- `src/core/deck.ts`: the `Deck` class and its operations.
+- `src/core/outline.ts`: the outline format and its compiler.
+- `src/core/layouts.ts`: layouts, the theme, and the text-fit estimate.
+- `src/core/model.ts`: element types and inline marks.
+- `src/core/principal.ts`: author kinds and error codes.
 
 ## Rules
 
-- Preview with dry run before each real dispatch.
-- Stop when a guard denies the call. State the reason.
-- Never retry a denied call with changed text to dodge a guard.
-- Report adapter errors as errors. Never present them as success.
-- State the cost report before you claim the task is done.
+- Every operation takes an author. Keep the kind on every edit.
+- Validate before you write. Yjs does not roll back a failed transaction.
+- Write a failing test for a new failure mode before the code.
+- Keep prose in ASD-STE100 Simplified Technical English.
