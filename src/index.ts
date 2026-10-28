@@ -16,6 +16,6 @@ export type { Authorship, Element, NewElement, Run, SlideContent } from "./core/
 export { compileOutline } from "./core/outline.js";
 export { PRINCIPAL_KINDS, SlidesError, isMachineMade } from "./core/principal.js";
 export type { Issue, Principal, PrincipalKind, SlidesErrorCode } from "./core/principal.js";
-export { renderDeck, renderSlide, themeCss } from "./render/html.js";
+export { CSP, cspFor, renderDeck, renderSlide, themeCss } from "./render/html.js";
 export type { RenderOptions } from "./render/html.js";
-export { renderPresent } from "./render/present.js";
+export { PRESENT_CSP, renderPresent } from "./render/present.js";

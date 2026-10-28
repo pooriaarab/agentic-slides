@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { JSDOM } from "jsdom";
 import { describe, expect, test } from "vitest";
 import { Deck } from "../core/deck.js";
@@ -153,5 +154,55 @@ describe("present mode", () => {
     const { dom, document, visible } = open();
     document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", ctrlKey: true }));
     expect(visible()).toEqual([1]);
+  });
+});
+
+// Ways the present page can run attacker text, written before the fix: notes and
+// the title go into the page, and the CSP has to stop a script that slips past escaping.
+describe("present page safety", () => {
+  const evil = `</div></div><script>alert(1)</script><img src=x onerror=alert(2)>`;
+  const title = `"><script>alert(3)</script>`;
+  const present = () => {
+    const deck = Deck.create({ title, author: human });
+    deck.addSlidesFromOutline(`# T\n> ${evil}`, { author: human });
+    return renderPresent(deck.outline());
+  };
+  const csp = (html: string) => /http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(html)![1]!;
+  const directive = (html: string, name: string) => csp(html).split(";").map((d) => d.trim()).find((d) => d.startsWith(`${name} `));
+
+  test("speaker notes and the deck title are escaped in the present page", () => {
+    const html = present();
+    expect(html).not.toContain("<script>alert");
+    const { document } = new JSDOM(html).window;
+    expect(document.querySelectorAll("script")).toHaveLength(1);
+    expect(document.querySelector("img[onerror]")).toBeNull();
+    expect(document.querySelector('[data-notes-for="1"]')!.textContent).toBe(evil);
+    expect(document.getElementById("stage")!.getAttribute("aria-label")).toBe(title);
+    expect(document.title).toBe(title);
+  });
+
+  test("the deck page allows no script at all", () => {
+    expect(directive(renderDeck(sample().outline()), "script-src")).toBe("script-src 'none'");
+  });
+
+  test("the present page allows only its own script, by hash", () => {
+    const html = present();
+    const inline = /<script>([\s\S]*)<\/script>/.exec(html)![1]!;
+    const hash = createHash("sha256").update(inline).digest("base64");
+    expect(directive(html, "script-src")).toBe(`script-src 'sha256-${hash}'`);
+    expect(directive(html, "script-src")).not.toContain("unsafe-inline");
+  });
+
+  test("a theme from a peer without fontFaces renders, not a TypeError", () => {
+    const outline = sample().outline();
+    delete (outline.theme as { fontFaces?: unknown }).fontFaces;
+    expect(renderDeck(outline)).toContain("<main");
+    expect(renderPresent(outline)).toContain('id="stage"');
+  });
+
+  test("the deck page carries print rules for one slide per page", () => {
+    const html = renderDeck(sample().outline());
+    expect(html).toMatch(/@page\{size:1280px 720px;margin:0\}/);
+    expect(html).toContain("break-after:page");
   });
 });

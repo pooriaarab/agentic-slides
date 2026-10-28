@@ -1,6 +1,6 @@
 import type { DeckOutline } from "../core/deck.js";
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from "../core/layouts.js";
-import { esc, renderPage, renderSlide, themeCss, type RenderOptions } from "./html.js";
+import { cspFor, esc, renderPage, renderSlide, themeCss, type RenderOptions } from "./html.js";
 
 // Keys: arrows, PageUp/PageDown, Space, Backspace move. Home and End jump.
 // N shows the speaker notes. F toggles full screen. The slide number lives in the hash.
@@ -14,6 +14,9 @@ if(Object.prototype.hasOwnProperty.call(keys,k))show(i+keys[k]);else if(k==="Hom
 d.getElementById("prev").onclick=function(){show(i-1)};d.getElementById("next").onclick=function(){show(i+1)};toggle.onclick=function(){notesView(panel.hidden)};
 window.addEventListener("resize",fit);
 var start=parseInt(location.hash.slice(1),10);show(isNaN(start)?0:start-1);fit()})();`;
+
+/** The policy for the present page: its one script, by hash. */
+export const PRESENT_CSP = cspFor(SCRIPT);
 
 const CHROME_CSS = `
 body{margin:0;background:#111;color:#fff;font:16px system-ui,sans-serif}
@@ -42,5 +45,5 @@ export function renderPresent(outline: DeckOutline, options: RenderOptions = {})
 <nav class="controls" aria-label="Presentation controls"><button id="prev" type="button" aria-label="Previous slide">&#8249;</button><span id="status" role="status" aria-live="polite"></span><button id="next" type="button" aria-label="Next slide">&#8250;</button><button id="toggle-notes" type="button" aria-pressed="false" aria-keyshortcuts="n">Notes</button><span id="origin" role="status"></span></nav>
 <script>${SCRIPT}</script>
 </body>`;
-  return renderPage(outline, `${themeCss(outline.theme)}${CHROME_CSS}`, body, options);
+  return renderPage(outline, `${themeCss(outline.theme)}${CHROME_CSS}`, body, options, PRESENT_CSP);
 }

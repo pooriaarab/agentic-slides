@@ -1,3 +1,4 @@
+import { sha256 } from "@noble/hashes/sha2.js";
 import type { DeckOutline, SlideOutline } from "../core/deck.js";
 import { COLOR_TOKENS, SLIDE_HEIGHT, SLIDE_WIDTH, checkTheme, type ColorToken, type Theme } from "../core/layouts.js";
 import { checkImageSrc, type Element, type Run } from "../core/model.js";
@@ -10,8 +11,18 @@ export interface RenderOptions {
 }
 
 // A page loads nothing from the network: no connections, no frames, only its own files.
-export const CSP =
-  "default-src 'none'; img-src 'self' data:; font-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'";
+// It runs no script, or one fixed script that the policy names by hash.
+const CSP_BASE =
+  "default-src 'none'; img-src 'self' data:; font-src 'self'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'";
+
+/** The policy for a page whose only script is `script`, or for a page with none. */
+export function cspFor(script?: string): string {
+  if (script === undefined) return `${CSP_BASE}; script-src 'none'`;
+  const hash = btoa(String.fromCharCode(...sha256(new TextEncoder().encode(script))));
+  return `${CSP_BASE}; script-src 'sha256-${hash}'`;
+}
+
+export const CSP = cspFor();
 
 const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 export const esc = (value: string): string => value.replace(/[&<>"']/g, (c) => ESCAPES[c]!);
@@ -93,19 +104,19 @@ export function renderSlide(slide: SlideOutline, theme: Theme, options: RenderOp
   return `${head}${slide.elements.map((e) => renderElement(e, options)).join("")}</div>`;
 }
 
-export function renderPage(outline: DeckOutline, css: string, body: string, options: RenderOptions): string {
+export function renderPage(outline: DeckOutline, css: string, body: string, options: RenderOptions, csp: string = CSP): string {
   return [
     `<!doctype html>`,
     `<html lang="${esc(options.lang ?? "en")}">`,
     `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`,
-    `<meta http-equiv="Content-Security-Policy" content="${CSP}">`,
+    `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
     `<title>${esc(outline.title)}</title><style>${css}</style></head>`,
     body,
     `</html>`,
   ].join("\n");
 }
 
-/** The whole deck as one page, slides stacked. It prints one slide per page, so it feeds PDF export. */
+/** The whole deck as one page, slides stacked. A browser prints it one slide per page. */
 export function renderDeck(outline: DeckOutline, options: RenderOptions = {}): string {
   const total = outline.slides.length;
   const css = `${themeCss(outline.theme)}
