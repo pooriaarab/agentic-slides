@@ -1,0 +1,15 @@
+# agentic-slides
+
+Build and present slide decks with people and agents.
+
+Keywords: slides,presentation,deck,collaboration,agents,mcp,cli,pptx.
+
+- SDK: import { summarizeText, dispatchText } from "agentic-slides".
+- CLI: agentic-slides summary --text "...".
+- MCP: run agentic-slides mcp, then call summarize_text.
+
+## Docs
+
+- README: https://github.com/pooriaarab/agentic-slides
+- Core contract: https://github.com/pooriaarab/agentic-slides/blob/main/docs/agentic-core.md
+- License: MIT
