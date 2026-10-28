@@ -1,6 +1,6 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { fromBase64, toBase64 } from "lib0/buffer";
+import { fromBase64, toBase64 } from "./bytes.js";
 import { Deck, type DeckOutline, type ElementPatch } from "./core/deck.js";
 import { isLayout, LAYOUT_NAMES, type LayoutName } from "./core/layouts.js";
 import { checkImageSrc, isBlobRef } from "./core/model.js";

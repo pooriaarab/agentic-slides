@@ -23,4 +23,5 @@ The package is in development. Only the latest commit on `main` gets fixes.
 - The package ships no default credentials.
 - Test-only sign-in is off unless an environment variable turns it on.
 - Logs hold no email addresses and no slide content.
+- The HTTP API refuses every call until you set `SLIDES_TOKENS`. A token names the author of its edits.
 - A deck never loads a font, image, or script from the network.

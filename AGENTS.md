@@ -17,7 +17,9 @@ and speaker notes. All positions use one 1280 by 720 space.
 - `src/service.ts`: the operations that the CLI, the MCP server, and the API share. Slide positions are 1-based here.
 - `src/ports.ts`, `src/store/file.ts`: the store and blob ports and the file adapters.
 - `src/export/pdf.ts`: PDF export without a browser.
-- `src/cli.ts`, `src/mcp.ts`: the faces. Keep them thin.
+- `src/cli.ts`, `src/mcp.ts`, `src/api.ts`, `src/worker.ts`: the faces. Keep them thin.
+- `src/auth.ts`: bearer tokens. A token names the author. The default is closed.
+- `src/store/memory.ts`: memory adapters for the Worker. Do not import Node modules in code that the Worker loads.
 - `src/e2e/`: tests that run the built CLI and MCP server. Run `npm run build` first.
 - `src/render/html.ts`, `src/render/present.ts`: deck and present pages. Escape all text. Load nothing remote.
 

@@ -7,8 +7,9 @@
 
 Build and present slide decks with people and agents.
 
-> Status: early. The deck library, the HTML render, the CLI, the MCP server, and
-> PDF export work. The HTTP API, ODP, and PPTX export are not ready yet. The package is not on npm yet.
+> Status: early. The deck library, the HTML render, the CLI, the MCP server, PDF
+> export, and the HTTP API work. Decks in the Worker live in memory only. ODP and
+> PPTX export are not ready yet. The package is not on npm yet.
 
 ## Install
 
@@ -53,6 +54,33 @@ Run `npx agentic-slides mcp`. The tools are `create_deck`, `read_outline`, `add_
 `set_slide`, `edit_element`, `move_slide`, `delete_slide`, `render_deck`, and `export_pdf`.
 The server sets the author of every edit: `agent`, or the `SLIDES_AUTHOR` value. A model cannot
 claim to be a human, and the server refuses to start with a `human` author. A failed call returns an error result with the issue list.
+
+## HTTP API
+
+A Cloudflare Worker (Hono) serves `/api/v1/slides`. It mirrors the CLI. Set tokens as a secret.
+Each token names who edits, so a client cannot claim a different kind:
+
+```sh
+npx wrangler dev --var 'SLIDES_TOKENS:my-long-token-0123456789=agent_of_human:bot'
+
+curl -s -X POST localhost:8787/api/v1/slides/decks \
+  -H 'authorization: Bearer my-long-token-0123456789' -d '{"title":"Talk","id":"talk"}'
+```
+
+| Route | Does |
+| --- | --- |
+| `POST /decks` | Create a deck. |
+| `GET /decks/:deck` | Read the outline. |
+| `POST /decks/:deck/slides` | Add slides from `outline` or one `layout`. |
+| `PUT /decks/:deck/slides/:slide` | Replace one slide from an outline. |
+| `PATCH /decks/:deck/slides/:slide/elements/:element` | Change one element. |
+| `POST /decks/:deck/slides/:slide/move` | Move a slide (`{"to": 1}`). |
+| `DELETE /decks/:deck/slides/:slide` | Delete a slide. |
+| `GET /decks/:deck/render?present=1` | The HTML page. |
+| `GET /decks/:deck/export` | The PDF. Warnings are in `x-slides-warnings`. |
+
+`:slide` is a slide id, or a 1-based position when all digits. With no token set, every call gets 401.
+Images go in the `images` field as base64.
 
 ## Features
 
@@ -101,6 +129,7 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 - The deck page runs no script. The present page runs one fixed script, and its CSP names that script by hash.
 - PDF text uses Helvetica. A character outside Latin-1 becomes `?` and is listed in `warnings`. The PDF has no tags yet.
   An open font for all scripts is next on the list.
+- The Worker keeps decks in memory. They are lost when the isolate restarts. Durable adapters go behind the same `Store` and `Blobs` shapes.
 - Elements cannot be added or deleted one by one yet.
 
 ## Develop
