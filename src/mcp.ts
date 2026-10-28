@@ -1,10 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { fromBase64, toBase64 } from "lib0/buffer";
+import { toBase64 } from "./bytes.js";
 import { z } from "zod";
 import { COMMAND } from "./brand.js";
-import { COLOR_TOKENS } from "./core/layouts.js";
 import { SlidesError, checkAuthor, fail, type Principal } from "./core/principal.js";
+import { decodeImages, images, patch } from "./schemas.js";
 import { createService, type Service } from "./service.js";
 import { FileBlobs, FileStore } from "./store/file.js";
 import { VERSION } from "./version.js";
@@ -21,26 +21,6 @@ const ok = (value: unknown): Result => ({ content: [{ type: "text", text: JSON.s
 
 const slide = z.union([z.string(), z.number()]).describe("A slide id, or its 1-based position.");
 const deck = z.string().describe("The deck id.");
-const images = z.record(z.string()).optional().describe("Image files for the outline: path -> base64 PNG or JPEG.");
-const patch = z
-  .object({
-    x: z.number(),
-    y: z.number(),
-    w: z.number(),
-    h: z.number(),
-    text: z.string().describe("Text with **bold** and *italic* marks."),
-    fontSize: z.number(),
-    color: z.enum(COLOR_TOKENS),
-    fill: z.enum(COLOR_TOKENS),
-    alt: z.string(),
-    src: z.string(),
-    rows: z.array(z.array(z.string())),
-  })
-  .partial()
-  .strict();
-
-const decode = (files?: Record<string, string>) =>
-  files && Object.fromEntries(Object.entries(files).map(([path, data]) => [path, fromBase64(data)]));
 
 export function createMcpServer({ service, author = { kind: "agent", name: "mcp-client" } }: McpDeps): McpServer {
   if (checkAuthor(author).kind === "human") fail("INVALID_AUTHOR", "an MCP server acts for a model, so it cannot write as a human. Use agent, agent_of_human, agent_of_agent, or user_token");
@@ -72,14 +52,14 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
     "Add slides from a text outline (slides split by '---', '# Title', '- item', '+++' column, '|a|b|' table, '![alt](path)', '> note'), or one empty slide of a layout. A bad outline returns every issue with its slide number.",
     { deck, outline: z.string().optional(), layout: z.string().optional(), at: z.number().optional().describe("1-based position."), images },
     edit,
-    (a) => service.addSlides(a.deck, { outline: a.outline, layout: a.layout, at: a.at, images: decode(a.images), author }),
+    (a) => service.addSlides(a.deck, { outline: a.outline, layout: a.layout, at: a.at, images: decodeImages(a.images), author }),
   );
   tool(
     "set_slide",
     "Replace one slide from a text outline of one slide. All elements of the slide are replaced: element ids change and shapes or boxes added by hand are lost. Use edit_element to change one element in place.",
     { deck, slide, outline: z.string(), images },
     edit,
-    async (a) => (await service.setSlide(a.deck, a.slide, { outline: a.outline, images: decode(a.images), author }), { ok: true }),
+    async (a) => (await service.setSlide(a.deck, a.slide, { outline: a.outline, images: decodeImages(a.images), author }), { ok: true }),
   );
   tool(
     "edit_element",

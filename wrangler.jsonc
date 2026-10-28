@@ -1,10 +1,9 @@
 {
-  // Sample worker config. Rename agentic-slides on clone, then run
-  // wrangler deploy from the pack root.
+  // Demo only: decks live in memory. Run locally with
+  // `npx wrangler dev --var SLIDES_UNSAFE_MEMORY_STORE:1 --var SLIDES_TOKENS:<token>=<kind>:<name>`.
+  // A token has 32 or more characters.
+  // Set the real tokens as a secret: `npx wrangler secret put SLIDES_TOKENS`.
   "name": "agentic-slides",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-01-01",
-  "vars": {
-    "PACK_NAME": "agentic-slides"
-  }
+  "compatibility_date": "2026-01-01"
 }
