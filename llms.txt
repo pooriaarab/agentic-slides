@@ -2,9 +2,11 @@
 
 Build and present slide decks with people and agents.
 
-Status: early. The package holds the deck library: a Yjs deck model and operations.
+Status: early. Deck library, render, CLI, MCP server, and PDF export.
 
 - SDK: import { Deck } from "agentic-slides".
+- CLI: agentic-slides new "Talk" --as human:ada, then add, outline, edit, render, export.
+- MCP: run agentic-slides mcp.
 
 ## Docs
 

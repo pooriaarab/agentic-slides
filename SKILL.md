@@ -1,11 +1,24 @@
 ---
 name: agentic-slides
-description: Build and edit slide decks from an outline. Every edit records its author.
+description: Build and edit slide decks from an outline with a CLI, an MCP server, or an SDK. Every edit records its author.
 ---
 
 # agentic-slides
 
-Status: early. Only the SDK works today.
+## Use the CLI
+
+```sh
+export SLIDES_AUTHOR=agent_of_human:my-bot
+agentic-slides new "Talk" --id talk
+agentic-slides add talk --outline outline.md
+agentic-slides outline talk
+agentic-slides export talk --out talk.pdf
+```
+
+## Use the MCP server
+
+Start it with `agentic-slides mcp`. Call `read_outline` first. Then call `add_slides`,
+`set_slide`, `edit_element`, `move_slide`, or `delete_slide`. End with `export_pdf` or `render_deck`.
 
 ## Use the SDK
 
@@ -21,5 +34,5 @@ deck.outline();
 ## Rules
 
 - Pass your real author kind on every call.
-- A failed outline lists all its issues. Fix them all.
-- Images come from stored blobs, never from a URL.
+- A failed outline lists all its issues. Fix them all, then retry once.
+- Images come from PNG or JPEG files, never from a URL.

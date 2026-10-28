@@ -11,7 +11,8 @@ import { renderPresent } from "./present.js";
 // from an untrusted update, a remote asset, a network fetch, and drift between runs.
 const human: Principal = { kind: "human", name: "ada" };
 const agent: Principal = { kind: "agent", name: "bot" };
-const images = { "cat.png": "blob:sha256-ab12" };
+const KEY = `sha256-${"ab".repeat(32)}`;
+const images = { "cat.png": `blob:${KEY}` };
 const OUTLINE = ["# Intro", "- one", "- **two**", "> say hi", "---", "# Pic", "![A cat](cat.png)", "---", "# Table", "|a|b|", "|1|2|"].join("\n");
 
 function sample(author: Principal = human) {
@@ -42,11 +43,24 @@ describe("render safety", () => {
     expect(() => renderDeck(faces)).toThrow(/REMOTE|relative/i);
   });
 
-  test("an image that is not a blob reference is refused", () => {
+  test("an image that is not a blob reference is drawn as a placeholder, and the rest of the deck renders", () => {
     const outline = sample().outline();
     const image = outline.slides[1]!.elements.find((e) => e.kind === "image")!;
-    if (image.kind === "image") image.src = "https://cdn.example.com/cat.png";
-    expect(() => renderDeck(outline)).toThrow(/blob/);
+    for (const src of ["https://cdn.example.com/cat.png", "blob:../x", "blob:sha256-dead"]) {
+      if (image.kind === "image") image.src = src;
+      for (const html of [renderDeck(outline), renderPresent(outline)]) {
+        expect(html).not.toMatch(/cdn\.example|<img/);
+        expect(html).toContain(`aria-label="A cat (image unavailable)"`);
+        expect(html).toContain("Intro");
+        expect(html).toContain("<th");
+      }
+    }
+  });
+
+  test("an image the resolver cannot find is a placeholder for that element only", () => {
+    const html = renderDeck(sample().outline(), { imageUrl: () => undefined });
+    expect(html).toContain("(image unavailable)");
+    expect(html).toContain("Table");
   });
 
   test("a box with a non-number position is drawn at zero, not injected", () => {
@@ -64,7 +78,7 @@ describe("render output", () => {
     for (const html of [renderDeck(deck.outline()), renderPresent(deck.outline())]) {
       expect(html).not.toMatch(/https?:|\/\/[a-z]/i);
       expect(html).toContain("fonts/inter.woff2");
-      expect(html).toContain(`src="blobs/sha256-ab12"`);
+      expect(html).toContain(`src="blobs/${KEY}"`);
       expect(html).toContain("connect-src 'none'");
     }
   });

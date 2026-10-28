@@ -1,13 +1,13 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import type { DeckOutline, SlideOutline } from "../core/deck.js";
 import { COLOR_TOKENS, SLIDE_HEIGHT, SLIDE_WIDTH, checkTheme, type ColorToken, type Theme } from "../core/layouts.js";
-import { checkImageSrc, type Element, type Run } from "../core/model.js";
+import { isBlobRef, type Element, type Run } from "../core/model.js";
 
 export interface RenderOptions {
   /** Page language. Defaults to "en". */
   lang?: string;
-  /** Where an image blob is served from. Defaults to a relative `blobs/<key>` path. */
-  imageUrl?: (key: string) => string;
+  /** Where an image blob is served from. Defaults to a relative `blobs/<key>` path. Return undefined for a missing image. */
+  imageUrl?: (key: string) => string | undefined;
 }
 
 // A page loads nothing from the network: no connections, no frames, only its own files.
@@ -47,6 +47,7 @@ export function themeCss(input: Theme): string {
     `.slide h2{font-family:var(--font-heading);font-weight:700;line-height:1.3}`,
     `.slide p,.slide ul{margin:0;padding:0}.slide ul{padding-left:1.2em}`,
     `.slide img{width:100%;height:100%;object-fit:contain}`,
+    `.slide .placeholder{background:var(--c-surface);border:2px dashed var(--c-muted)}`,
     `.slide table{border-collapse:collapse;width:100%;font-size:24px}`,
     `.slide th{background:var(--c-accent);color:var(--c-accentText);text-align:left}`,
     `.slide th,.slide td{padding:6px 10px;border:1px solid var(--c-muted)}`,
@@ -76,9 +77,12 @@ function renderElement(element: Element, options: RenderOptions): string {
     case "shape":
       return `<div ${attrs} aria-hidden="true" style="${box};background:${color(element.fill)};${element.shape === "ellipse" ? "border-radius:50%" : ""}"></div>`;
     case "image": {
-      const key = checkImageSrc(element.src);
-      const url = options.imageUrl?.(key) ?? `blobs/${encodeURIComponent(key.slice(5))}`;
-      return `<div ${attrs} style="${box}"><img src="${esc(url)}" alt="${esc(String(element.alt))}"></div>`;
+      // A src that is not a blob ref, or a blob that is gone, costs one placeholder, not the deck.
+      const key = isBlobRef(element.src) ? element.src : undefined;
+      const url = key && (options.imageUrl ? options.imageUrl(key) : `blobs/${encodeURIComponent(key.slice(5))}`);
+      const alt = esc(String(element.alt));
+      if (!url) return `<div ${attrs.replace('class="el"', 'class="el placeholder"')} role="img" aria-label="${alt} (image unavailable)" style="${box}"></div>`;
+      return `<div ${attrs} style="${box}"><img src="${esc(url)}" alt="${alt}"></div>`;
     }
     case "table": {
       const [head = [], ...body] = element.rows;

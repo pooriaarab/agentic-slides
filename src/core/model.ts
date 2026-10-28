@@ -50,8 +50,13 @@ export function parseInline(text: string): Run[] {
 
 export const runsText = (runs: Run[]): string => runs.map((r) => r.text).join("");
 
+const BLOB_REF = /^blob:sha256-[0-9a-f]{64}$/;
+
+/** True for `blob:sha256-<64 hex>`, the only form of image src a deck holds. */
+export const isBlobRef = (src: unknown): src is string => typeof src === "string" && BLOB_REF.test(src);
+
 /** Images are blob keys. A deck never points at a network address. */
 export function checkImageSrc(src: string): string {
-  if (!src.startsWith("blob:") || src.length < 6) fail("REMOTE_ASSET", `image src "${src}" must be a "blob:<key>" reference`);
+  if (!isBlobRef(src)) fail("REMOTE_ASSET", `image src "${String(src).slice(0, 80)}" must look like "blob:sha256-<64 hex digits>"`);
   return src;
 }

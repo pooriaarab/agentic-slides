@@ -132,3 +132,7 @@ export function compileOutline(text: string, images: Record<string, string> = {}
   if (issues.length > 0) throw new SlidesError(issues);
   return slides as SlideContent[];
 }
+
+/** The local image paths an outline mentions. Callers read these files and pass them as images. */
+export const imagePaths = (text: string): string[] =>
+  [...text.matchAll(/^\s*!\[.*?\]\((.+?)\)\s*$/gm)].map((m) => m[1]!).filter((p) => !REMOTE.test(p) && !p.startsWith("blob:"));
