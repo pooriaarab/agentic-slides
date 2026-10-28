@@ -136,7 +136,7 @@ export class Deck {
     readonly doc: Y.Doc = new Y.Doc(),
     options: { newId?: () => string } = {},
   ) {
-    this.newId = options.newId ?? (() => uuidv4().replaceAll("-", "").slice(0, 12));
+    this.newId = options.newId ?? (() => `s${uuidv4().replaceAll("-", "").slice(0, 11)}`);
   }
 
   static create(

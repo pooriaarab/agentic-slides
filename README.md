@@ -7,8 +7,8 @@
 
 Build and present slide decks with people and agents.
 
-> Status: early. The deck library and the HTML render work. The CLI, the MCP
-> server, the HTTP API, and export are not ready yet. The package is not on npm yet.
+> Status: early. The deck library, the HTML render, the CLI, the MCP server, and
+> PDF export work. The HTTP API, ODP, and PPTX export are not ready yet. The package is not on npm yet.
 
 ## Install
 
@@ -32,6 +32,28 @@ deck.addSlidesFromOutline(
 console.log(deck.outline().slides.map((s) => s.title)); // ["Launch plan", "Goals"]
 ```
 
+## CLI
+
+```sh
+export SLIDES_AUTHOR=human:ada            # or pass --as <kind:name> on each edit
+npx agentic-slides new "Launch plan" --id plan
+npx agentic-slides add plan --outline outline.md   # images are read next to the outline
+npx agentic-slides outline plan                    # the deck as JSON
+npx agentic-slides edit plan --slide 1 --element <id> --patch '{"text":"New **title**"}'
+npx agentic-slides render plan --present --out deck.html
+npx agentic-slides export plan --out deck.pdf
+```
+
+Decks live in `.slides/` (or `--dir`, or `$SLIDES_DIR`). Also: `move`, `delete`, and `edit --outline`.
+Run `npx agentic-slides --help` for all flags.
+
+## MCP server
+
+Run `npx agentic-slides mcp`. The tools are `create_deck`, `read_outline`, `add_slides`,
+`set_slide`, `edit_element`, `move_slide`, `delete_slide`, `render_deck`, and `export_pdf`.
+The server sets the author of every edit: `agent`, or the `SLIDES_AUTHOR` value. A model cannot
+claim to be a human. A failed call returns an error result with the issue list.
+
 ## Features
 
 - Slides on a fixed 1280 by 720 space (16:9), kept in a Yjs document.
@@ -44,6 +66,7 @@ console.log(deck.outline().slides.map((s) => s.title)); // ["Launch plan", "Goal
 - `renderDeck` makes one HTML page of all slides (it prints one slide per page).
   `renderPresent` makes a present page: arrow keys move, `N` shows speaker notes,
   `F` goes full screen. Both pages load nothing from the network.
+- PDF export draws each slide on a 1280 by 720 page with no browser.
 - A bad outline fails with a code and a slide number. It never changes the deck.
 
 ## Outline format
@@ -67,6 +90,7 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
   Nothing serves or inlines the font files yet, so a page falls back to the font stack.
 - The present page holds the speaker notes of every slide. Anyone who can open it can read them in the page source.
 - The deck page runs no script. The present page runs one fixed script, and its CSP names that script by hash.
+- PDF text uses Helvetica. A character outside Latin-1 becomes `?` and is listed in `warnings`. The PDF has no tags yet.
 - Elements cannot be added or deleted one by one yet.
 
 ## Develop

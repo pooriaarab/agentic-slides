@@ -21,7 +21,7 @@
   "type": "module",
   "private": false,
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "files": [
     "dist"
@@ -50,6 +50,7 @@
     "ci:local": "npm run build && npm run typecheck && npm test"
   },
   "dependencies": {
+    "@cantoo/pdf-lib": "^2.11.1",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@noble/hashes": "^2.4.0",
     "lib0": "^0.2.119",

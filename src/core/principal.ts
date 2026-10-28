@@ -22,7 +22,11 @@ export type SlidesErrorCode =
   | "OUT_OF_RANGE"
   | "OUT_OF_BOUNDS"
   | "BAD_PATCH"
-  | "BAD_THEME";
+  | "BAD_THEME"
+  | "NO_DECK"
+  | "DECK_EXISTS"
+  | "INVALID_ID"
+  | "UNSUPPORTED_IMAGE";
 
 export interface Issue {
   code: SlidesErrorCode;
@@ -66,3 +70,9 @@ export function checkAuthor(author: Principal): Principal {
 /** Read an author from stored data. Missing or unknown data reads as an agent, so it is labeled machine-made. */
 export const readPrincipal = (value: unknown): Principal =>
   isPrincipal(value) ? { kind: value.kind, name: value.name } : { kind: "agent", name: "unknown" };
+
+/** Read `<kind>:<name>`. The result still needs `checkAuthor`, which every edit runs. */
+export function parsePrincipal(value: string): Principal {
+  const cut = value.indexOf(":");
+  return { kind: value.slice(0, cut < 0 ? undefined : cut) as PrincipalKind, name: cut < 0 ? "" : value.slice(cut + 1) };
+}
