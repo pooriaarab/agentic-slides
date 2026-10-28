@@ -39,14 +39,16 @@ const LOCAL_PATH = /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./-]*$/;
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
 /** Throws unless the theme is safe to put into CSS and keeps every asset local. */
-export function checkTheme(theme: Theme): Theme {
+export function checkTheme(input: Theme): Theme {
+  const theme = { ...input, fontFaces: input.fontFaces ?? [] };
+  if (!Array.isArray(theme.fontFaces)) fail("BAD_THEME", "fontFaces must be a list");
   for (const token of COLOR_TOKENS) {
     if (!HEX.test(theme.colors?.[token])) fail("BAD_THEME", `color "${token}" must be a #rrggbb value`);
   }
   for (const value of [theme.fonts?.heading, theme.fonts?.body]) {
     if (!FONT_STACK.test(value)) fail("BAD_THEME", "font stacks hold only letters, digits, spaces, commas, quotes, _ and -");
   }
-  for (const face of theme.fontFaces ?? []) {
+  for (const face of theme.fontFaces) {
     if (!FONT_STACK.test(face.family)) fail("BAD_THEME", "a font face needs a plain family name");
     if (!LOCAL_PATH.test(face.src)) fail("REMOTE_ASSET", `font src "${face.src}" must be a relative path in the asset root`);
   }

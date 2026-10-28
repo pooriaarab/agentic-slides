@@ -7,8 +7,8 @@
 
 Build and present slide decks with people and agents.
 
-> Status: early. Only the deck library works. The CLI, the MCP server, the
-> HTTP API, rendering, and export are not ready yet. The package is not on npm yet.
+> Status: early. The deck library and the HTML render work. The CLI, the MCP
+> server, the HTTP API, and export are not ready yet. The package is not on npm yet.
 
 ## Install
 
@@ -41,6 +41,9 @@ console.log(deck.outline().slides.map((s) => s.title)); // ["Launch plan", "Goal
 - Operations that run in Node with no browser: read the deck as an outline,
   add, move, and delete a slide, set a slide from a text outline, edit one element.
 - Every edit records who made it. Content from an agent is marked `machineMade`.
+- `renderDeck` makes one HTML page of all slides (it prints one slide per page).
+  `renderPresent` makes a present page: arrow keys move, `N` shows speaker notes,
+  `F` goes full screen. Both pages load nothing from the network.
 - A bad outline fails with a code and a slide number. It never changes the deck.
 
 ## Outline format
@@ -60,6 +63,10 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
   one rewrite. Edits to different parts of a text both survive. Two writers who
   insert at the same spot both keep their text.
 - Moving a slide changes only the order. Two writers who move one slide leave one copy.
+- A font is a file in the asset root, and an image is a blob. The page links them by relative path.
+  Nothing serves or inlines the font files yet, so a page falls back to the font stack.
+- The present page holds the speaker notes of every slide. Anyone who can open it can read them in the page source.
+- The deck page runs no script. The present page runs one fixed script, and its CSP names that script by hash.
 - Elements cannot be added or deleted one by one yet.
 
 ## Develop
