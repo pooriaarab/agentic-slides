@@ -21,6 +21,13 @@ This file lists the notable changes to this project, by version.
 - A ban or a role cap that an earlier version stored under `<kind>:<name>` does not apply to the `<kind>.<name>` id. The old entries stay in the room storage. They count toward the room limit on caps and bans, and the Worker cannot clear them. A revoked grant already stops a new connect, because the deck routes check the role first. The room ban is a second layer. After you deploy, revoke again each person or agent, so the room also holds a ban under the new id.
 - Cloudflare restarts every Durable Object on a deploy, and that disconnects its WebSockets. So a live client reconnects after the deploy, and its new socket has the new id. A revoke or a lower role with the new id reaches every socket from then on.
 
+## 0.13.0 - 2026-10-29
+
+### Added
+
+- `agentic-slides/account` is the account export and erase plug-in. A host calls `exportAccount` and `eraseAccount` for one subject, and it never reads the storage layout. An erase removes the decks of a sole owner and the other roles of the subject. It replaces the subject as author with the fixed name `erased` and keeps the kind, so a record that an agent made stays machine-made.
+- With the `live` dependency, an erase clears the live room of each deck that it deletes or changes.
+
 ## 0.12.0 - 2026-10-29
 
 ### Changed
