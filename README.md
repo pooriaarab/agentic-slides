@@ -132,6 +132,19 @@ WRANGLER_SEND_METRICS=false npx wrangler dev --var SLIDES_REGION:unknown \
 Open `http://localhost:8787/` and type a token. The token names who edits, and a tab keeps it until you
 close it. An agent that uses the other token appears in presence, and its edits get the agent mark.
 
+Test the UI in a browser. The tests start their own Workers, so run `npm run build` first. They need
+Chromium once (`npx playwright install chromium`):
+
+```sh
+npm run e2e
+```
+
+They create a deck, add a slide, edit text, reload, and present with the arrow keys. They also check
+the keyboard, presence between two browsers, the agent mark, a failed save, and a viewer. An axe check
+(WCAG 2.2 AA) runs on every view in light and dark. The same run writes the screenshots in
+[docs/screenshots](docs/screenshots), for review. An axe check finds only part of the problems, so a person
+should still check the keyboard and a screen reader.
+
 The UI sends the token to the room as a WebSocket subprotocol (`bearer.<token>`), because a browser cannot set a header on a WebSocket. Only the room route reads it.
 
 ## SDK
@@ -250,6 +263,7 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 - Elements cannot be added or deleted one by one yet. The canvas edits the elements that a layout makes.
 - The UI shows an image as a box with its description. The API has no route to read one image yet.
 - The UI uses the room for presence only. Its edits go through the HTTP API, and it reads the deck again every 3 seconds.
+- A deck that someone edits while a person pages through the list moves to the front, so it can be missing from the later pages of that walk. Load the list again to see it.
 - The deck list reads a small index that each save writes. A deck that nobody edited since this version is not in the list until its next edit.
 
 ## Develop

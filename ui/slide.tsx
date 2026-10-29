@@ -25,7 +25,7 @@ export const markup = (runs: Run[]): string => runs.map((r) => (r.bold ? `**${r.
 
 export const describe = (el: El, index: number): string => {
   const place = `${el.kind === "text" ? "Text box" : el.kind === "shape" ? "Shape" : el.kind === "image" ? "Image" : "Table"} ${index + 1}`;
-  if (el.kind === "text") return `${place}: ${el.runs.map((r) => r.text).join("").replace(/\s+/g, " ").slice(0, 40)}`;
+  if (el.kind === "text") return `${place}: ${el.runs.map((r) => r.text).join("").replace(/\s+/g, " ").trim()}`;
   if (el.kind === "image") return `${place}: ${el.alt || "no description"}`;
   return place;
 };
@@ -40,11 +40,13 @@ const box = (el: El, drag?: { x: number; y: number }): CSSProperties => ({
 function Body({ el, theme }: { el: El; theme: Theme }) {
   if (el.kind === "text") {
     const lines = paragraphs(el.runs);
-    const items = lines.map((runs, i) => (
+    // A space between lines keeps the text that a reader gets in step with the name of the element.
+    const items = lines.flatMap((runs, i) => [
+      i > 0 && " ",
       <span key={i} className="slide-line">
         {runs.map((r, j) => (r.bold ? <strong key={j}>{r.text}</strong> : r.italic ? <em key={j}>{r.text}</em> : r.text))}
-      </span>
-    ));
+      </span>,
+    ]);
     return <div className={`slide-text${el.list ? " slide-list" : ""}`} style={{ color: theme.colors[el.color], fontSize: `${el.fontSize / (SLIDE_W / 100)}cqw`, fontFamily: el.slot === "title" ? theme.fonts.heading : theme.fonts.body }}>{items}</div>;
   }
   if (el.kind === "shape") return <div className={`slide-shape slide-${el.shape}`} style={{ background: theme.colors[el.fill] }} />;
@@ -122,7 +124,6 @@ export function SlideView({ slide, theme, selected, onSelect, onNudge, label }: 
             onPointerDown={drag(el)}
           >
             <Body el={el} theme={theme} />
-            {el.machineMade && <span className="agent-tag" aria-hidden="true">Agent edit</span>}
           </div>
         ) : (
           <div key={el.id} className="slide-el" style={box(el)} aria-hidden="true">

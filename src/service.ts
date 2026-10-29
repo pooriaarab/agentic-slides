@@ -34,6 +34,16 @@ export const MAX_LIVE_BYTES = 1_572_864;
 export const MAX_LISTED = 200;
 const DEFAULT_LISTED = 50;
 
+/** The list cursor is base64url of `[savedAt, id]`. Check the types here, so a forged one is a client error before any query. */
+function validCursor(cursor: string): boolean {
+  try {
+    const [saved, id] = JSON.parse(new TextDecoder().decode(fromBase64(cursor.replace(/-/g, "+").replace(/_/g, "/")))) as unknown[];
+    return typeof saved === "number" && Number.isFinite(saved) && typeof id === "string";
+  } catch {
+    return false;
+  }
+}
+
 export interface DeckSummary {
   id: string;
   title: string;
@@ -152,6 +162,7 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
     async list(page: { limit?: number; cursor?: string } = {}): Promise<{ decks: DeckSummary[]; nextCursor?: string }> {
       const limit = page.limit ?? DEFAULT_LISTED;
       if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LISTED) fail("BAD_PATCH", `limit is a whole number from 1 to ${MAX_LISTED}`);
+      if (page.cursor !== undefined && !validCursor(page.cursor)) fail("BAD_PATCH", "the cursor is not one that this list gave");
       let found;
       try {
         found = await store.query(INDEX, { orderBy: { field: "savedAt", direction: "desc" }, limit, cursor: page.cursor });

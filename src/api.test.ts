@@ -255,7 +255,10 @@ describe("deck list pages", () => {
     const second = (await (await call("GET", `/decks?limit=2&cursor=${encodeURIComponent(first.nextCursor!)}`, { token: HUMAN })).json()) as { decks: { id: string }[]; nextCursor?: string };
     expect(second.decks.map((d) => d.id)).toEqual(["two"]);
     expect(second.nextCursor).toBeUndefined();
-    for (const bad of ["limit=0", "limit=201", "limit=x", "cursor=%00"]) expect((await call("GET", `/decks?${bad}`, { token: HUMAN })).status).toBe(400);
+    // A cursor that decodes, but holds a value of the wrong type, is a client error too: savedAt is always a number.
+    const forged = Buffer.from(JSON.stringify([{ a: 1 }, "x"])).toString("base64url");
+    const text = Buffer.from(JSON.stringify(["when", "x"])).toString("base64url");
+    for (const bad of ["limit=0", "limit=201", "limit=x", "cursor=%00", `cursor=${forged}`, `cursor=${text}`]) expect((await call("GET", `/decks?${bad}`, { token: HUMAN })).status).toBe(400);
   });
 });
 
@@ -293,7 +296,8 @@ describe("deck index", () => {
     const store = createMemoryStore();
     const down = Object.assign(Object.create(store), { query: async () => { throw new Error("D1 is down"); } });
     const service = createService({ store: down, blobs: createMemoryBlobs() });
-    await expect(service.list({ cursor: "abc" })).rejects.toThrow("D1 is down");
+    const cursor = Buffer.from(JSON.stringify([1, "x"])).toString("base64url");
+    await expect(service.list({ cursor })).rejects.toThrow("D1 is down");
     await expect(createService({ store, blobs: createMemoryBlobs() }).list({ cursor: "abc" })).rejects.toMatchObject({ code: "BAD_PATCH" });
   });
 });

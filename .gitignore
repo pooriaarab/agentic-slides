@@ -7,3 +7,5 @@ coverage/
 .DS_Store
 .dev.vars
 .wrangler/
+test-results/
+playwright-report/
