@@ -268,7 +268,7 @@ describe("a checkpoint holds every element to the rules of an edit", () => {
     ["a color that is not a token", (e: Y.Map<unknown>) => e.set("color", "#ff0000"), "BAD_PATCH"],
     ["a font size that is not a number", (e: Y.Map<unknown>) => e.set("fontSize", "big"), "BAD_PATCH"],
     ["a kind that does not exist", (e: Y.Map<unknown>) => (e.delete("text"), e.set("kind", "video")), "BAD_PATCH"],
-    ["an element id that is not text", (e: Y.Map<unknown>) => e.set("id", 7), "BAD_PATCH"],
+    ["an element id that is not text", (e: Y.Map<unknown>) => e.set("id", 7), "INVALID_UPDATE"],
   ])("%s is refused and the stored deck stays as it was", async (_label, change, code) => {
     const { call, service } = setup();
     await service.create({ title: "T", id: "t", author: ada });
@@ -296,6 +296,7 @@ describe("a checkpoint holds the raw Yjs types to what the Deck class writes", (
     ["a text element with runs and no text", (d: Y.Doc) => (firstText(d).delete("text"), firstText(d).set("runs", [{ text: "plain" }]))],
     ["an element that is not a map", (d: Y.Doc) => (first(d).get("elements") as Y.Array<unknown>).push(["junk"])],
     ["an order that holds a number", (d: Y.Doc) => d.getArray("order").push([7])],
+    ["an element id that is a Y.Text", (d: Y.Doc) => firstText(d).set("id", new Y.Text("e1"))],
   ])("%s is refused as INVALID_UPDATE and the stored deck stays as it was", async (_label, change) => {
     const { call, service } = setup();
     await service.create({ title: "T", id: "t", author: ada });
@@ -308,5 +309,41 @@ describe("a checkpoint holds the raw Yjs types to what the Deck class writes", (
     expect((await json(response)).error.code).toBe("INVALID_UPDATE");
     expect(await service.outline("t")).toEqual(before);
     await expect(service.render("t")).resolves.toContain("<html");
+  });
+});
+
+describe("a slide that the order does not hold", () => {
+  test("is dropped, so it can neither hide a bad layout or label nor grow the deck", async () => {
+    const { call, service } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    const deck = Deck.fromUpdate(await service.state("t"));
+    deck.addSlidesFromOutline("# Real", { author: ada, images: {} });
+    const orphan = new Y.Map<unknown>();
+    orphan.set("layout", "nope");
+    orphan.set("createdBy", { kind: "human", name: "mallory" });
+    orphan.set("notes", new Y.Text("x".repeat(1_000_000)));
+    orphan.set("elements", new Y.Array());
+    deck.doc.getMap<Y.Map<unknown>>("slides").set("orphan0", orphan);
+    expect((await call("POST", "/decks/t/checkpoint", { token: HUMAN, body: deck.encode() })).status).toBe(200);
+    const stored = Deck.fromUpdate(await service.state("t"));
+    expect(stored.doc.getMap("slides").has("orphan0")).toBe(false);
+    expect(stored.outline().slides).toHaveLength(1);
+    expect((await service.state("t")).length).toBeLessThan(100_000);
+  });
+});
+
+describe("a checkpoint cannot grow the stored deck past the room cap", () => {
+  test("many small checkpoints stop at the cap", async () => {
+    const { call, service } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    const notes = (n: number) => `# S${n}\n> ${"n".repeat(90_000)}`;
+    let status = 200;
+    for (let i = 0; i < 40 && status === 200; i++) {
+      const deck = Deck.fromUpdate(await service.state("t"));
+      deck.addSlidesFromOutline(notes(i), { author: ada, images: {} });
+      status = (await call("POST", "/decks/t/checkpoint", { token: HUMAN, body: deck.encode() })).status;
+    }
+    expect(status).toBe(413);
+    expect((await service.state("t")).length).toBeLessThanOrEqual(1_572_864);
   });
 });

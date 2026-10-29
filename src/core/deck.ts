@@ -352,6 +352,14 @@ export class Deck {
     });
   }
 
+  /** Delete the slides that `order` does not hold. No reader sees them, and no operation can remove them. */
+  pruneOrphans(): void {
+    const held = new Set(this.order.toArray());
+    this.doc.transact(() => {
+      for (const id of [...this.slides.keys()]) if (!held.has(id)) this.slides.delete(id);
+    });
+  }
+
   /**
    * Check the raw Yjs types, which `outline` reads with no check. A client can write any Yjs value, and the
    * Deck class never writes these: so a deck that fails here came from outside, and no reader can use it.
@@ -367,6 +375,7 @@ export class Deck {
         if (!(element instanceof Y.Map)) bad(`slide "${id}" holds an element that is not a map`);
         const text = (element as YMap).get("text");
         if ((element as YMap).get("kind") === "text" ? !(text instanceof Y.Text) : text !== undefined) bad(`slide "${id}" holds an element with a text field of the wrong type`);
+        if (typeof (element as YMap).get("id") !== "string") bad(`slide "${id}" holds an element with an id that is not text`);
         if ((element as YMap).has("runs")) bad(`slide "${id}" holds an element with a stored "runs" field`);
       }
     }

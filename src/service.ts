@@ -153,11 +153,14 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
         try {
           const before = deck.outline();
           deck.applyUpdate(update);
+          deck.pruneOrphans();
           deck.checkShape();
           const after = deck.outline();
           checkDeckState(after);
           checkDeckSize(after, limits);
           checkAuthors(before, after, allowed);
+          // The cap is on the merged state: each update is small, and many of them would pass it.
+          if (deck.encode().length > MAX_LIVE_BYTES) fail("TOO_LARGE", `the deck is over ${MAX_LIVE_BYTES} bytes, the most a live room takes`);
         } catch (error) {
           if (error instanceof SlidesError) throw error;
           return fail("INVALID_UPDATE", "the update is not a deck state");
