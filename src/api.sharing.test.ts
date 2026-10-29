@@ -1,5 +1,6 @@
 import { createMemoryBlobs, createMemoryStore } from "agentic-identity";
 import { describe, expect, test } from "vitest";
+import worker from "./worker.js";
 import { createApp } from "./api.js";
 import { parseTokens, tokenAuth } from "./auth.js";
 import { createService } from "./service.js";
@@ -538,6 +539,73 @@ describe("fourth review fixes", () => {
     expect((await call("DELETE", `/decks/a/links/${link.id}`, { token: ADA })).status).toBe(403);
     expect((await call("GET", "/shared/b", { headers: { "x-link-token": link.token } })).status).toBe(200);
     expect((await call("DELETE", `/decks/b/links/${link.id}`, { token: ADA })).status).toBe(200);
+  });
+});
+
+describe("fifth review fixes", () => {
+  test("a list cursor from a scan that found no deck is sealed, and a forged one is a 400", async () => {
+    const { call } = setup();
+    for (let n = 0; n < 205; n++) await call("POST", "/decks", { token: ADA, body: { title: `secret${n}`, id: `secret-merger-${n}` } });
+    const first = await call("GET", "/decks?limit=3", { token: BOB });
+    expect(first.json.decks).toEqual([]);
+    const cursor: string = first.json.nextCursor;
+    expect(cursor.startsWith("s1.")).toBe(true);
+    // No plain form of a hidden id or time is in it, in the text or when decoded as base64url.
+    expect(Buffer.from(cursor.slice(3), "base64url").toString("latin1")).not.toMatch(/secret|merger|17\d{11}/);
+    expect(cursor).not.toMatch(/secret|merger/);
+    // The cursor works, and the caller ends with no deck.
+    let page = first;
+    let calls = 1;
+    while (page.json.nextCursor && calls < 5) {
+      page = await call("GET", `/decks?limit=3&cursor=${encodeURIComponent(page.json.nextCursor)}`, { token: BOB });
+      expect(page.status).toBe(200);
+      expect(page.json.decks).toEqual([]);
+      calls++;
+    }
+    expect(page.json.nextCursor).toBeUndefined();
+    for (const forged of ["s1.AAAA", `${cursor.slice(0, -2)}AA`, "s1.", "s1.not base64"]) {
+      expect((await call("GET", `/decks?cursor=${encodeURIComponent(forged)}`, { token: BOB })).status, forged).toBe(400);
+    }
+  }, 60_000);
+
+  test("a deck with too many owners is not erased, so no owner record is left behind", async () => {
+    const { call } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    for (let n = 0; n < 100; n++) await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "human", subjectId: `own${n}`, role: "owner" } });
+    const refused = await call("DELETE", "/decks/plan", { token: ADA });
+    expect(refused.status).toBe(400);
+    expect(refused.json.error.code).toBe("INVALID_SHARE");
+    expect((await call("GET", "/decks/plan", { token: ADA })).status).toBe(200);
+    await call("DELETE", "/decks/plan/grants?subjectKind=human&subjectId=own0", { token: ADA });
+    expect((await call("DELETE", "/decks/plan", { token: ADA })).status).toBe(200);
+  }, 60_000);
+
+  test("a delete clears the room before and after the deck goes", async () => {
+    const { call, room } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    room.length = 0;
+    expect((await call("DELETE", "/decks/plan", { token: ADA })).status).toBe(200);
+    expect(room).toEqual(["erase plan", "erase plan"]);
+  });
+
+  test("a deck with only revoked or expired links writes no audit row for a visitor", async () => {
+    const { call, store } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    const revoked = (await call("POST", "/decks/plan/links", { token: ADA, body: { role: "viewer" } })).json;
+    await call("DELETE", `/decks/plan/links/${revoked.id}`, { token: ADA });
+    await call("POST", "/decks/plan/links", { token: ADA, body: { role: "viewer", expiresInMs: 1 } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    for (let n = 0; n < 3; n++) expect((await call("GET", "/shared/plan", { headers: { "x-link-token": revoked.token } })).status).toBe(404);
+    expect((await store.query("audit", { where: { resourceId: "plan", outcome: "denied" }, limit: 10 })).items).toEqual([]);
+  });
+
+  test("the Worker refuses a token name that could hold no role", async () => {
+    const bindings = { DB: { prepare: () => ({ run: async () => ({}) }), batch: async () => [] } as never, IMAGES: {} as never };
+    for (const config of [`${ADA}=human:ada.lovelace`, `${ADA}=agent:agent_of_human_eve`, `${ADA}=agent:${"a".repeat(129)}`]) {
+      const response = await worker.fetch(new Request(`${BASE}/decks/x`, { headers: { authorization: `Bearer ${ADA}` } }), { ...bindings, SLIDES_TOKENS: config });
+      expect(response.status, config).toBe(500);
+      expect(((await response.json()) as { error: { code: string } }).error.code).toBe("MISCONFIGURED");
+    }
   });
 });
 

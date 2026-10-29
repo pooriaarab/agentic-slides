@@ -146,8 +146,9 @@ A role is `owner`, `editor`, `commenter`, or `viewer`.
 A caller with no role on a deck gets the answer for a missing deck (404), and does not see it in `GET /decks`.
 A caller with a role that is too low gets 403. The role works with the token role: a `;viewer` token only reads, even for an owner.
 
+A token name must have 1 to 128 of `A-Z a-z 0-9 _ -`, or the Worker refuses the token setting (500 `MISCONFIGURED`): a name with another character could hold no role.
 A token holds roles as a subject. `GET /me` shows it. A `human` token is the subject `human:<name>`. An `agent` token is `agent:<name>`.
-A token of another kind (for example `agent_of_human`) is the subject `agent:<kind>_<name>`. An `agent` token with a name that starts with a delegated kind and an underscore holds no role.
+A token of another kind (for example `agent_of_human`) is the subject `agent:<kind>_<name>`. The Worker refuses an `agent` token with a name that starts with a delegated kind and an underscore (for example `agent_of_human_eve`), because it would share the subject of a delegated token.
 
 | Route (owner only) | Does |
 | --- | --- |
@@ -170,7 +171,7 @@ it keeps the token role check, and the share routes answer 403 for it. `createAp
 
 A revoke closes the live room sockets of that caller. The room refuses that caller until a new grant or an accepted invite. A grant of a lower role makes open sockets read only at once, and an accepted invite sets the room to the role that stands then.
 `GET /decks` reads on until it fills the page with decks that the caller holds a role on. It reads at most 200 decks. If it stops there, it returns what it found and a `nextCursor` to go on.
-If it finds a deck first, `nextCursor` stands after that deck. If it finds none, `nextCursor` can stand after a deck that the caller cannot see: it shows the id and the time of that deck, and nothing more. A list writes no audit row. A caller with more than 1000 roles sees the decks of the first 1000.
+If it finds a deck first, `nextCursor` stands after that deck. If it finds none, `nextCursor` is sealed with a key that the store holds, so the caller can pass it back and cannot read it. A list writes no audit row. A caller with more than 1000 roles sees the decks of the first 1000.
 A caller with no role on a deck gets 404 and writes no audit row. A check for a caller with a role writes one audit row, and so does a link visit to a deck that has links. Limit the rate of `/shared` at the edge. A check that runs while a deck is deleted can leave a row that blocks the id for a new deck (`DECK_EXISTS`). The operator clears it from the `audit` collection. Deleting a deck erases the audit rows of its sharing: who held a role, and who shared it.
 
 ## UI

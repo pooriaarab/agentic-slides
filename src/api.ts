@@ -4,11 +4,12 @@ import { z } from "zod";
 import { COMMAND } from "./brand.js";
 import type { Realtime } from "agentic-realtime";
 import { acceptWebSocketProtocol, principalFromWebSocketRequest } from "agentic-identity/http";
-import { EraseRefusedError, ROLES, StoreConflictError, createSharing, type Auth, type Json, type PrincipalContext, type Role, type Store, type Subject } from "agentic-identity";
+import { EraseRefusedError, MAX_OWNERS_ON_ERASE, ROLES, StoreConflictError, createSharing, type Auth, type Json, type PrincipalContext, type Role, type Store, type Subject } from "agentic-identity";
 import { DECK, DECK_ID, contextOf, roomPrincipals, subjectOf } from "./access.js";
 import { ConfigError, type Authenticator, type Caller, type SlidesRole } from "./auth.js";
 import { SlidesError, fail, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
 import { toBase64 } from "./bytes.js";
+import { openCursor, sealCursor } from "./cursor.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { CSP } from "./render/html.js";
 import { PRESENT_CSP } from "./render/present.js";
@@ -68,6 +69,12 @@ async function roleOf(store: Store, deck: string, subject: Subject): Promise<Rol
   const found = await store.query<{ role?: string }>("grants", { where: { resourceId: deck, subjectKind: subject.kind, subjectId: subject.id }, limit: 1 });
   const role = found.items[0]?.data.role;
   return (ROLES as readonly unknown[]).includes(role) ? (role as Role) : null;
+}
+
+/** True when the deck has a link that is not revoked and not expired. A link record that is not of the expected shape counts as no link. */
+async function hasLiveLink(store: Store, deck: string): Promise<boolean> {
+  const found = await store.query<Record<string, Json>>("links", { where: { resourceId: deck }, limit: 100 });
+  return found.items.some(({ data }) => data.revokedAt == null && (data.expiresAt == null || (typeof data.expiresAt === "number" && data.expiresAt > Date.now())));
 }
 
 const SHARE_ERROR = /^(invalid|give an|expiresAt|expiresInMs|the last owner|limit must)/;
@@ -247,7 +254,7 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     const { limit = DEFAULT_LISTED, cursor } = body.page.parse({ limit: c.req.query("limit"), cursor: c.req.query("cursor") });
     if (!sharing || !store) return c.json(await service.list({ limit, cursor }));
     // A deck with an owner shows only to a caller with a role. A page is filled from later pages, and the cursor stands after the last deck that it returns.
-    // A caller then gets no cursor of a deck that it cannot see, unless the scan stops at `MAX_SCANNED` decks.
+    // A caller then gets no readable cursor of a deck that it cannot see: a cursor from a scan that stops at `MAX_SCANNED` decks is sealed.
     // The check is a plain read of the roles of the caller: a list writes no audit row, and a call reads a bounded number of records.
     const subject = subjectOf(callerOf(c));
     const held = new Set<string>();
@@ -261,7 +268,8 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     }
     const decks: Awaited<ReturnType<Service["list"]>>["decks"] = [];
     let scanned = 0;
-    let next: string | undefined = cursor;
+    let next: string | undefined = cursor === undefined ? undefined : ((await openCursor(store, cursor)) ?? fail("BAD_PATCH", "the cursor is not one that this list gave"));
+    let sealed = false;
     for (;;) {
       const page = await service.list({ limit: limit - decks.length, cursor: next });
       scanned += page.decks.length;
@@ -273,11 +281,13 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
       if (decks.length >= limit || next === undefined) break;
       if (scanned >= MAX_SCANNED) {
         // Stop here. With a deck to return, the cursor stands after it. With none, only the cursor of the last deck that was read is left.
+        // That deck may be hidden, so the cursor is sealed: the caller can pass it back, and cannot read it.
         if (decks.length > 0) next = deckCursor(decks[decks.length - 1]!);
+        else sealed = true;
         break;
       }
     }
-    return c.json({ decks, ...(next === undefined ? {} : { nextCursor: next }) });
+    return c.json({ decks, ...(next === undefined ? {} : { nextCursor: sealed ? await sealCursor(store, next) : next }) });
   });
   api.delete("/decks/:deck", async (c) => {
     const id = c.req.param("deck");
@@ -286,6 +296,10 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     const gone = await service.exists(id).then(() => false, (error: unknown) => (error instanceof SlidesError && error.code === "NO_DECK" ? true : Promise.reject(error)));
     const owned = Boolean(sharing && ctx && store && DECK_ID.test(id) && (await store.get("resources", id)));
     if (gone && !owned) await service.exists(id);
+    // Identity refuses to erase a deck with too many owners. Ask first, so the deck is not erased with its owner record left behind.
+    if (owned && store && (await store.query("grants", { where: { resourceId: id, role: "owner" }, limit: MAX_OWNERS_ON_ERASE + 1 })).items.length > MAX_OWNERS_ON_ERASE) {
+      return fail("INVALID_SHARE", `This deck has more than ${MAX_OWNERS_ON_ERASE} owners. Remove owners first.`);
+    }
     if (!gone) {
       // Clear the live room first: it keeps the deck state, and a new deck with the same id must not read it.
       if (live) await live(c.env).erase(id);
@@ -293,6 +307,8 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     }
     // The deck is gone. Erase its roles, links, and invites, so a new deck with the same id starts clean.
     if (sharing && ctx && owned) await viaSharing(() => sharing.deleteResource(ctx, id));
+    // A client that joined the room while the deck was going could have filled it again. Clear it a second time, so a new deck with this id starts empty.
+    if (live && owned) await live(c.env).erase(id);
     return c.json({ ok: true });
   });
   api.get("/decks/:deck", async (c) => c.json(await service.outline(c.req.param("deck"))));
@@ -430,8 +446,8 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     if (!sharing || !store || !token || !DECK_ID.test(id)) return gone;
     // An id with no deck record gets no check, so a caller with no token cannot make audit rows for ids that never existed.
     if ((await store.get<{ type?: string }>("resources", id))?.type !== DECK) return gone;
-    // A deck with no link has nothing to check a link token against, and a check would only write an audit row.
-    if (ctx === null && (await store.query("links", { where: { resourceId: id }, limit: 1 })).items.length === 0) return gone;
+    // A deck with no live link has nothing to check a link token against, and a check would only write an audit row.
+    if (ctx === null && !(await hasLiveLink(store, id))) return gone;
     return (await sharing.can(ctx, "read", id, { linkToken: token })).allowed ? { id } : gone;
   };
   shared.get("/:deck", async (c) => {
