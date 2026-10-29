@@ -9,3 +9,4 @@ coverage/
 .wrangler/
 test-results/
 playwright-report/
+bun.lock

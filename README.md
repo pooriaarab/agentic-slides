@@ -444,10 +444,12 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 ```sh
 bun install        # or: npm ci
 bun run dev        # or: npm run dev
-curl http://127.0.0.1:8787/health
+curl http://localhost:8787/health
 ```
 
-The script builds the app, then runs `wrangler dev` with the region check off (`SLIDES_REGION=unknown`). `/health` needs no token. To sign in to the UI, add the static-token flags from the "UI" section.
+The script builds the app, then runs `wrangler dev` with the region check off (`SLIDES_REGION=unknown`). `/health` needs no token. To sign in to the UI on your machine only, pass a static token: `npm run dev -- --var SLIDES_UNSAFE_STATIC_TOKENS:1 --var 'SLIDES_TOKENS:my-long-token-0123456789-abcdefghij=human:ada'`.
+
+The scripts call `npm` and `node` (Node 22 or newer), so install both, even if you use bun. They need a POSIX shell.
 
 Run `npm run dev:smoke` to check this path. It starts the dev server on port 8799, waits for `GET /health` to answer 200, and stops the server. CI runs it as the "dev smoke" step. Set `DEV_SMOKE_PORT` to use another port.
 
