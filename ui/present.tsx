@@ -61,14 +61,14 @@ export function Present({ client, id, start }: { client: SlidesClient; id: strin
   }, [cur, id, total]);
 
   if (error) return <main className="present" data-theme="dark"><EmptyState title="The deck did not load" description={error} action={<><Button onClick={() => setAttempt(attempt + 1)}>Try again</Button> <Button variant="secondary" onClick={leave}>Leave</Button></>} /></main>;
-  if (!outline) return <main className="present" data-theme="dark"><p role="status" className="muted"><span className="ad-spinner" aria-hidden="true" /> Loading deck…</p></main>;
+  if (!outline) return <main className="present" data-theme="dark"><p role="status" className="muted"><span className="agd-spinner" aria-hidden="true" /> Loading deck…</p></main>;
   const slide = outline.slides[cur];
   if (!slide) return <main className="present" data-theme="dark"><EmptyState title="This deck has no slides" action={<Button onClick={leave}>Leave</Button>} /></main>;
   return (
     <main className="present" data-theme="dark">
       <div className="present-slide">
         <SlideView slide={slide} theme={outline.theme} label={`Slide ${slide.index} of ${total}: ${slide.title}`} />
-        <p className="ad-sr-only" role="status">Slide {slide.index} of {total}: {slide.title}</p>
+        <p className="agd-sr-only" role="status">Slide {slide.index} of {total}: {slide.title}</p>
       </div>
       <div className="present-bar">
         <Button size="sm" variant="secondary" disabled={cur === 0} onClick={() => go(cur - 1)}>Previous</Button>

@@ -60,7 +60,7 @@ export function DeckList({ client, canWrite }: { client: SlidesClient; canWrite:
       {error ? (
         <EmptyState title="The decks did not load" description={error} action={<Button onClick={load}>Try again</Button>} />
       ) : !decks ? (
-        <p role="status" className="muted"><span className="ad-spinner" aria-hidden="true" /> Loading decks…</p>
+        <p role="status" className="muted"><span className="agd-spinner" aria-hidden="true" /> Loading decks…</p>
       ) : decks.length === 0 ? (
         <EmptyState title="No decks yet" description={canWrite ? "Type a title above to make the first deck." : "This token can read decks, and there are none."} />
       ) : (

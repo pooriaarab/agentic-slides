@@ -2,10 +2,11 @@
 
 This file lists the notable changes to this project, by version.
 
-## Unreleased
+## 0.10.0 - 2026-10-29
 
 ### Breaking changes
 
+- BREAKING: design class prefix is now agd-. Design classes use `agd-`, and design custom properties use `--agd-*`, in the web UI and in the HTML and present-mode pages that the render code writes. The old prefix is gone, with no alias. Ad blockers hide the old names, so a block rule could remove a button or a toast. A stylesheet or test that targets an old name must change. `agentic-design` is now 0.4.x, the release that ships the `agd-` names.
 - The Worker signs requests in with agentic-identity credentials by default. The scope `slides:write` makes an editor, `slides:read` a viewer, and a valid credential with neither gets 403. `SLIDES_TOKENS` is now a dev fallback. It needs `SLIDES_UNSAFE_STATIC_TOKENS=1`. A Worker that sets `SLIDES_TOKENS` without the switch answers every API call with 500 `MISCONFIGURED`. Set the switch in dev, or issue identity credentials.
 - zod 4 words some validation messages differently, and it is stricter with some numbers (for example, `Infinity`). A 400 response can carry other `issues[].message` text. A client that matches on message text should match on the error code.
 

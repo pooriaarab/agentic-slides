@@ -129,7 +129,7 @@ export function Editor({ client, id, token, origin, canWrite, name, onPresent }:
   const present = `#/deck/${id}/present/${slide?.index ?? 1}`;
 
   if (error && !outline) return <div className="page"><EmptyState title="The deck did not load" description={error} action={<Button onClick={() => void load()}>Try again</Button>} /></div>;
-  if (!outline) return <div className="page"><p role="status" className="muted"><span className="ad-spinner" aria-hidden="true" /> Loading deck…</p></div>;
+  if (!outline) return <div className="page"><p role="status" className="muted"><span className="agd-spinner" aria-hidden="true" /> Loading deck…</p></div>;
 
   return (
     <div className="editor">
@@ -165,7 +165,7 @@ export function Editor({ client, id, token, origin, canWrite, name, onPresent }:
                 <li key={s.id}>
                   <button type="button" className="thumb" aria-current={i === at ? "true" : undefined} onClick={() => (setSlideId(s.id), setPicked(undefined))}>
                     <span className="thumb-box"><SlideView slide={s} theme={outline.theme} label="" /></span>
-                    <span className="thumb-text"><span className="thumb-number"><span className="ad-sr-only">Slide </span>{s.index}</span> <span className="thumb-title">{s.title || "Untitled"}</span></span>
+                    <span className="thumb-text"><span className="thumb-number"><span className="agd-sr-only">Slide </span>{s.index}</span> <span className="thumb-title">{s.title || "Untitled"}</span></span>
                     {s.machineMade && <span className="agent-mark">Agent edit</span>}
                   </button>
                 </li>

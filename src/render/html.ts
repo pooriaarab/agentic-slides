@@ -124,7 +124,7 @@ export function renderPage(outline: DeckOutline, css: string, body: string, opti
 export function renderDeck(outline: DeckOutline, options: RenderOptions = {}): string {
   const total = outline.slides.length;
   const css = `${themeCss(outline.theme)}
-body{margin:0;background:var(--ad-color-surface-sunken,#e6e8eb)}main{display:flex;flex-direction:column;align-items:center;gap:24px;padding:24px}
+body{margin:0;background:var(--agd-color-surface-sunken,#e6e8eb)}main{display:flex;flex-direction:column;align-items:center;gap:24px;padding:24px}
 @media print{@page{size:${SLIDE_WIDTH}px ${SLIDE_HEIGHT}px;margin:0}body{background:none}main{display:block;padding:0}.slide{break-after:page}}`;
   const slides = outline.slides.map((s) => renderSlide(s, outline.theme, options, total)).join("\n");
   const body = `<body><h1 class="sr-only">${esc(outline.title)}</h1><main aria-label="Slides">${slides}</main></body>`;

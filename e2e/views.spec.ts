@@ -37,7 +37,7 @@ test("every view passes axe WCAG 2.2 AA in light and dark, and a screenshot is k
   await page.getByLabel("X", { exact: true }).fill("80");
   await page.route("**/elements/*", (route) => route.fulfill({ status: 503, json: { error: { code: "STORE_BUSY", message: "another writer changed the deck. Try again" } } }));
   await page.getByRole("button", { name: "Save text" }).click();
-  await expect(page.locator(".ad-toast__title", { hasText: "The change was not saved" })).toBeVisible();
+  await expect(page.locator(".agd-toast__title", { hasText: "The change was not saved" })).toBeVisible();
   for (const scheme of SCHEMES) await checkView(page, "editor-toast", scheme);
   await page.unroute("**/elements/*");
 

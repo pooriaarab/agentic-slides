@@ -1,6 +1,6 @@
 {
   "name": "agentic-slides",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Build and present slide decks with people and agents.",
   "keywords": [
     "slides",
@@ -81,7 +81,7 @@
     "@cantoo/pdf-lib": "^2.11.1",
     "@modelcontextprotocol/sdk": "^1.23.0",
     "@noble/hashes": "^2.4.0",
-    "agentic-design": "^0.2.0",
+    "agentic-design": "^0.4.0",
     "agentic-formats": "^0.3.0",
     "agentic-identity": "^0.7.0",
     "agentic-realtime": "^0.4.0",

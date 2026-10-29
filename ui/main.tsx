@@ -59,7 +59,7 @@ function Signed({ token, onSignOut }: { token: string; onSignOut: () => void }) 
   }, [client]);
 
   if (error) return <main className="signin"><EmptyState title="Could not sign in" description={error} action={<Button onClick={onSignOut}>Use another token</Button>} /></main>;
-  if (!me) return <main className="signin"><p role="status" className="muted"><span className="ad-spinner" aria-hidden="true" /> Signing in…</p></main>;
+  if (!me) return <main className="signin"><p role="status" className="muted"><span className="agd-spinner" aria-hidden="true" /> Signing in…</p></main>;
   const canWrite = me.role === "editor";
 
   if (route.name === "present") return <Present key={route.id} client={client} id={route.id} start={route.at} />;
