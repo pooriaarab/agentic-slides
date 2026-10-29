@@ -1,9 +1,9 @@
 import * as Y from "yjs";
-import { SyncClient, type Peer } from "agentic-realtime/client";
+import { SyncClient, type ConnectOptions, type Peer } from "agentic-realtime/client";
 import { Deck, type DeckOutline, type ElementPatch } from "./core/deck.js";
 import { PRINCIPAL_KINDS, SlidesError, fail, type Principal, type SlidesErrorCode } from "./core/principal.js";
 import { fromBase64 } from "./bytes.js";
-import { MAX_LIVE_BYTES, type Operations, type SlideSel } from "./service.js";
+import { MAX_LIVE_BYTES, slideRef, type Operations } from "./service.js";
 
 export interface LiveOptions {
   /** The Worker address, such as `https://slides.example.com`. */
@@ -14,6 +14,18 @@ export interface LiveOptions {
   name?: string;
   /** Reconnect after a drop. Edits made offline merge when the socket returns. */
   reconnect?: { initialMs?: number; maxMs?: number };
+  /** Opens the room connection. A test passes its own. */
+  connect?: (options: ConnectOptions) => Promise<Pick<SyncClient, "doc" | "denied" | "peers" | "flush" | "disconnect">>;
+}
+
+/** True for an `https:` address, or an `http:` address on this machine. A token never goes over plain http to another host. */
+export function isLiveServer(server: string): boolean {
+  try {
+    const url = new URL(server);
+    return url.protocol === "https:" || (url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname));
+  } catch {
+    return false;
+  }
 }
 
 /** Who the server says the token is. */
@@ -84,7 +96,7 @@ export class LiveDeck {
     readonly me: Me,
     private readonly id: string,
     private readonly options: LiveOptions,
-    private readonly client: SyncClient,
+    private readonly client: Pick<SyncClient, "doc" | "denied" | "peers" | "flush" | "disconnect">,
     private readonly refusedAtStart: number,
   ) {}
 
@@ -99,9 +111,9 @@ export class LiveDeck {
     if (state.length > MAX_LIVE_BYTES) fail("TOO_LARGE", `the stored deck is over ${MAX_LIVE_BYTES} bytes, the most a live room takes`);
     const url = new URL(`${base(options.server)}/decks/${id}/ws`);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    let client: SyncClient;
+    let client: Awaited<ReturnType<NonNullable<LiveOptions["connect"]>>>;
     try {
-      client = await SyncClient.connect({
+      client = await (options.connect ?? SyncClient.connect)({
         url: url.toString(),
         headers: { authorization: `Bearer ${options.token}` },
         presence: { name: options.name ?? me.author.name },
@@ -142,7 +154,12 @@ export class LiveDeck {
     if (this.me.role === "viewer") fail("FORBIDDEN", "this token is a viewer. It cannot change a deck");
     const seen = this.denied.length;
     const result = run(this.deck, this.me.author);
-    await this.client.flush();
+    try {
+      await this.client.flush();
+    } catch (error) {
+      // The room can hold the change even when the answer never came. A caller that repeats it would add it twice.
+      throw new SlidesError([{ code: "LIVE_UNAVAILABLE", message: `the connection failed after the change: ${reason(error)}. The room may have the change. Do not repeat the change without a read first` }]);
+    }
     if (this.denied.length > seen) fail("FORBIDDEN", `the room refused the edit: ${this.denied[seen]}`);
     return result;
   }
@@ -168,8 +185,6 @@ export class LiveDeck {
     await this.client.disconnect();
   }
 }
-
-const slideRef = (sel: SlideSel) => (typeof sel === "number" || /^\d+$/.test(sel) ? Number(sel) - 1 : sel);
 
 const NO_IMAGES = "images are not available in a live room yet. Use the HTTP API to add them";
 
@@ -222,7 +237,8 @@ export function createLiveService(options: LiveOptions): Operations {
     async create({ title, id }) {
       const response = await ask(options.server, options.token, "/decks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, id }) });
       if (!response.ok) throw await refusal(response, "the server refused the request");
-      return (await response.json()) as { id: string };
+      const made = (await response.json().catch(() => undefined)) as { id?: unknown } | undefined;
+      return typeof made?.id === "string" ? { id: made.id } : fail("LIVE_UNAVAILABLE", "the server did not say the id of the new deck");
     },
     outline: (id): Promise<DeckOutline> => read(id, (deck) => deck.outline()),
     async addSlides(id, input) {
@@ -252,8 +268,9 @@ export function createLiveService(options: LiveOptions): Operations {
       return (await page(id, `/render${present ? "?present=1" : ""}`)).text();
     },
     async exportPdf(id) {
-      const { pdfBase64, warnings } = (await (await page(id, "/export?envelope=json")).json()) as { pdfBase64: string; warnings: string[] };
-      return { bytes: fromBase64(pdfBase64), warnings };
+      const sent = (await (await page(id, "/export?envelope=json")).json().catch(() => undefined)) as { pdfBase64?: unknown; warnings?: unknown } | undefined;
+      if (typeof sent?.pdfBase64 !== "string" || !Array.isArray(sent.warnings)) return fail("LIVE_UNAVAILABLE", "the server sent an export that this client does not know");
+      return { bytes: fromBase64(sent.pdfBase64), warnings: sent.warnings.map(String) };
     },
   };
 }

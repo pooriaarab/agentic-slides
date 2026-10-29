@@ -1,7 +1,9 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, test } from "vitest";
-import { createLiveService, whoAmI } from "./live.js";
+import * as Y from "yjs";
+import { Deck } from "./core/deck.js";
+import { createLiveService, whoAmI, type LiveOptions } from "./live.js";
 
 // Ways the live client can fail before it reaches a room. The E2E in src/e2e/live-client.test.ts joins real rooms.
 const TOKEN = "agent-token-0123456789-abcdefghij";
@@ -87,6 +89,51 @@ describe("a live call fails before it opens a room", () => {
     await whoAmI(url, TOKEN);
     expect(seen).toEqual([`Bearer ${TOKEN}`]);
     expect(requests.join(" ")).not.toContain(TOKEN);
+  });
+});
+
+describe("a server that sends the wrong shape", () => {
+  const live = (url: string) => createLiveService({ server: url, token: TOKEN });
+  const author = { kind: "agent", name: "x" } as const;
+
+  test("a deck id that is not text is a coded error", async () => {
+    const url = await fake({ "POST /api/v1/slides/decks": () => ({ status: 201, body: { id: 7 } }) });
+    await expect(live(url).create({ title: "T", author })).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
+  });
+
+  test("an export with no PDF is a coded error", async () => {
+    const url = await fake({ "GET /api/v1/slides/decks/d/export?envelope=json": () => ({ status: 200, body: { warnings: [] } }) });
+    await expect(live(url).exportPdf("d")).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
+  });
+});
+
+describe("a connection that drops during an edit", () => {
+  // A room client whose first flush works (the seed) and whose next one fails, as a dropped socket does.
+  function dropping() {
+    const calls = { flush: 0, disconnect: 0 };
+    const doc = new Y.Doc();
+    const client = {
+      doc,
+      denied: [] as string[],
+      peers: [],
+      flush: async () => {
+        if (++calls.flush > 1) throw new Error("connection closed");
+      },
+      disconnect: async () => void calls.disconnect++,
+    };
+    return { calls, connect: (async () => client) as unknown as LiveOptions["connect"] };
+  }
+
+  test("is LIVE_UNAVAILABLE and says that the room can hold the change, so a caller does not repeat it", async () => {
+    const state = new Deck();
+    state.addSlide({ layout: "blank" }, { kind: "human", name: "ada" });
+    const url = await fake({ [ME]: () => agent, "GET /api/v1/slides/decks/d/state": () => ({ status: 200, bytes: state.encode() }) });
+    const { calls, connect } = dropping();
+    const error = await createLiveService({ server: url, token: TOKEN, connect }).deleteSlide("d", 1, { kind: "agent", name: "x" }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "LIVE_UNAVAILABLE" });
+    expect((error as Error).message).toContain("Do not repeat the change");
+    expect(calls.disconnect).toBe(1);
+    expect(requests.some((r) => r.startsWith("POST") && r.includes("checkpoint"))).toBe(false);
   });
 });
 

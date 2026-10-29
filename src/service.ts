@@ -17,7 +17,7 @@ const COLLECTION = "decks";
 /** A slide by id, or by 1-based position when the text is all digits. Slide ids start with a letter. */
 export type SlideSel = string | number;
 
-const slideRef = (sel: SlideSel) => (typeof sel === "number" || /^\d+$/.test(sel) ? Number(sel) - 1 : sel);
+export const slideRef = (sel: SlideSel) => (typeof sel === "number" || /^\d+$/.test(sel) ? Number(sel) - 1 : sel);
 
 function sniff(data: Uint8Array): string {
   if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) return "image/png";

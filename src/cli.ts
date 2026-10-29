@@ -8,7 +8,7 @@ import { COMMAND, DESCRIPTION } from "./brand.js";
 import { imagePaths } from "./core/outline.js";
 import { PRINCIPAL_KINDS, SlidesError, fail, parsePrincipal, type Principal } from "./core/principal.js";
 import { DEFAULT_LIMITS } from "./export/limits.js";
-import { createLiveService, type LiveOptions } from "./live.js";
+import { createLiveService, isLiveServer, type LiveOptions } from "./live.js";
 import { createService } from "./service.js";
 import { createFileBlobs, createFileStore } from "./store/file.js";
 import { VERSION } from "./version.js";
@@ -61,8 +61,8 @@ Flags:
 /** The live room options, or undefined when no server is named. A server that is named but unusable is an error: never fall back to files. */
 function liveOptions(server: string | undefined, env: NodeJS.ProcessEnv, values: { dir?: string; as?: string }): LiveOptions | undefined {
   if (server === undefined) return undefined;
-  if (!/^https?:\/\/[^/\s]+/.test(server)) throw new UsageError("--live needs an address that starts with http:// or https://");
-  if (values.dir !== undefined || values.as !== undefined) throw new UsageError("--dir and --as do not work with --live: the token sets who edits");
+  if (!isLiveServer(server)) throw new UsageError("--live needs an https:// address (http:// only for this machine): a token must not cross the network in the clear");
+  if (values.dir !== undefined || values.as !== undefined || env.SLIDES_AUTHOR !== undefined) throw new UsageError("--dir, --as, and $SLIDES_AUTHOR do not work with --live: the token sets who edits");
   const token = env.SLIDES_LIVE_TOKEN;
   if (!token) throw new UsageError("a live room needs a token in $SLIDES_LIVE_TOKEN");
   return { server, token, name: env.SLIDES_LIVE_NAME };

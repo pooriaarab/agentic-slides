@@ -51,7 +51,8 @@ Run `npx agentic-slides --help` for all flags.
 ### Join a live room
 
 With `--live <url>` (or `SLIDES_LIVE_URL`) the CLI joins the live room of a deck on a server, in place of files.
-Put the token in `SLIDES_LIVE_TOKEN`, never in a flag. The token sets who edits, so `--as` and `--dir` are refused.
+Put the token in `SLIDES_LIVE_TOKEN`, never in a flag. The token sets who edits, so `--as`, `--dir`, and `SLIDES_AUTHOR` are refused.
+The address must be `https://`. Plain `http://` works only for this machine.
 Each command joins the room, makes one change, saves it to the stored deck, and leaves.
 
 ```sh
@@ -192,6 +193,7 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
   listed in `warnings`. The PDF has no tags yet.
 - The Worker keeps decks in D1 and images in R2. Create both in the EU (see `wrangler.jsonc`). It declares the `eu` region and refuses a D1 query that D1 does not report as served in the EU. `SLIDES_REGION:unknown` turns that check off, for local runs only. Any valid token can read every deck, and an editor token can change every deck: there is no owner and no per-deck role yet, so do not use it for more than one tenant.
 - A token has 32 or more characters. A request holds at most 20 images, 10 MB each, and 32 MB in all.
+- A change reaches the room before the server checks the size, so an edit that makes a deck too large for a room stays in the room and makes every save fail until someone removes it.
 - A live room and the HTTP API are two copies of a deck. A CLI or MCP call in a live room saves after each change, so the HTTP API sees it at once. An HTTP edit reaches a room on the next join, not at once. Save a room with a checkpoint.
 - A checkpoint holds at most 1.5 MiB. A deck over that cannot go in a room.
 - Elements cannot be added or deleted one by one yet.

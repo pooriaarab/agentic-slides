@@ -54,6 +54,8 @@ describe("the CLI refuses a live setting that it cannot use", () => {
     ["--dir with --live", ["outline", "x", "--live", "http://127.0.0.1:1", "--dir", "d"], { SLIDES_LIVE_TOKEN: HUMAN }],
     ["--as with --live", ["outline", "x", "--live", "http://127.0.0.1:1", "--as", "human:ada"], { SLIDES_LIVE_TOKEN: HUMAN }],
     ["no token", ["outline", "x", "--live", "http://127.0.0.1:1"], {}],
+    ["a token sent over plain http to a remote host", ["outline", "x", "--live", "http://slides.example.com"], { SLIDES_LIVE_TOKEN: HUMAN }],
+    ["SLIDES_AUTHOR, which the token replaces", ["outline", "x", "--live", "http://127.0.0.1:1"], { SLIDES_LIVE_TOKEN: HUMAN, SLIDES_AUTHOR: "human:ada" }],
   ])("%s exits 2 and never falls back to files", (_label, args, env) => {
     const result = cli(args, env);
     expect(result.code).toBe(2);
@@ -64,6 +66,17 @@ describe("the CLI refuses a live setting that it cannot use", () => {
     const result = cli(["outline", "x", "--live", "http://127.0.0.1:1"], { SLIDES_LIVE_TOKEN: HUMAN });
     expect(result.code).toBe(1);
     expect(JSON.parse(result.err).error.code).toBe("LIVE_UNAVAILABLE");
+  });
+});
+
+describe("the MCP server refuses a live setting that it cannot use", () => {
+  test.each([
+    ["plain http to a remote host", { SLIDES_LIVE_URL: "http://slides.example.com", SLIDES_LIVE_TOKEN: HUMAN }],
+    ["SLIDES_AUTHOR, which the token replaces", { SLIDES_LIVE_URL: "http://127.0.0.1:1", SLIDES_LIVE_TOKEN: AGENT, SLIDES_AUTHOR: "agent:x" }],
+    ["no token", { SLIDES_LIVE_URL: "https://slides.example.com" }],
+  ])("%s exits 1", (_label, env) => {
+    const result = spawnSync("node", [join(process.cwd(), "dist", "mcp-bin.js")], { cwd: work, encoding: "utf8", env: { PATH: process.env.PATH, ...env } });
+    expect(result.status).toBe(1);
   });
 });
 
