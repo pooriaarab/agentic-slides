@@ -1,9 +1,12 @@
-import { createMemoryBlobs, createMemoryStore } from "agentic-identity";
+import { createMemoryBlobs, createMemoryStore, parsePrincipal } from "agentic-identity";
 import { describe, expect, test } from "vitest";
 import worker from "./worker.js";
 import { createApp } from "./api.js";
 import { parseTokens, tokenAuth } from "./auth.js";
 import { createService } from "./service.js";
+
+/** As `agentic-realtime` does: a room takes only an id of the `agentic-identity` rule, so a `<kind>:<name>` id throws here. */
+const roomId = (id: string) => (parsePrincipal({ kind: id.split(".")[0], id }), id);
 
 // Roles on decks, over the real app and a memory store. Each caller has its own token.
 const ADA = "ada-token-0123456789-abcdefghijklmn";
@@ -21,9 +24,9 @@ function setup() {
   // A room stub that records what the routes tell it.
   const room: string[] = [];
   const live = {
-    connect: async (id: string, _request: Request, grant: { principal: { id: string }; role: string }) => (room.push(`connect ${id} ${grant.principal.id} ${grant.role}`), new Response("joined", { status: 200 })),
-    revoke: async (id: string, who: string) => (room.push(`revoke ${id} ${who}`), { closed: 0, stored: true }),
-    updateRole: async (id: string, who: string, role: string | null) => (room.push(`role ${id} ${who} ${role}`), true),
+    connect: async (id: string, _request: Request, grant: { principal: { id: string }; role: string }) => (roomId(grant.principal.id), room.push(`connect ${id} ${grant.principal.id} ${grant.role}`), new Response("joined", { status: 200 })),
+    revoke: async (id: string, who: string) => (roomId(who), room.push(`revoke ${id} ${who}`), { closed: 0, stored: true }),
+    updateRole: async (id: string, who: string, role: string | null) => (roomId(who), room.push(`role ${id} ${who} ${role}`), true),
     erase: async (id: string) => (room.push(`erase ${id}`), { sockets: 0 }),
     meta: async () => ({ updates: 0, compactions: 0, contributors: [] }),
   };

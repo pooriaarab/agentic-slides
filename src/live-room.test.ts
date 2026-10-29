@@ -1,4 +1,4 @@
-import { createMemoryBlobs, createMemoryStore } from "agentic-identity";
+import { createMemoryBlobs, createMemoryStore, parsePrincipal } from "agentic-identity";
 import type { Grant, Realtime } from "agentic-realtime";
 import * as Y from "yjs";
 import { describe, expect, test, vi } from "vitest";
@@ -6,6 +6,9 @@ import { createApp } from "./api.js";
 import { parseTokens, tokenAuth } from "./auth.js";
 import { Deck } from "./core/deck.js";
 import { createService } from "./service.js";
+
+/** As `agentic-realtime` does: a room takes only an id of the `agentic-identity` rule, so a `<kind>:<name>` id throws here. */
+const roomId = (id: string) => (parsePrincipal({ kind: id.split(".")[0], id }), id);
 
 // Ways the live room routes can fail, on the real app over a memory store.
 // The wrangler E2E in src/e2e/live.test.ts runs the real Durable Object room.
@@ -22,7 +25,7 @@ function setup(options: { live?: boolean; extra?: string } = {}) {
   const erased: string[] = [];
   const contributors: { id: string; kind: string; machine: boolean }[] = [];
   const live: Realtime = {
-    connect: async (id, _request, grant) => (grants.push({ id, grant }), new Response("joined", { status: 200 })),
+    connect: async (id, _request, grant) => (roomId(grant.principal.id), grants.push({ id, grant }), new Response("joined", { status: 200 })),
     meta: async () => ({ updates: 0, compactions: 0, contributors: contributors as never }),
     createSnapshot: async () => null,
     listSnapshots: async () => [],
@@ -297,8 +300,8 @@ describe("a checkpoint keeps the author labels honest", () => {
   test("a name from another kind does not pass for the same person", async () => {
     const { call, service, contributors } = setup();
     await service.create({ title: "T", id: "t", author: ada });
-    // The old colon id and the dot id that a room writes now.
-    for (const id of ["agent_of_human:ada", "agent_of_human.ada"]) {
+    // The old colon id, which a room that has an old record still holds.
+    for (const id of ["agent_of_human:ada"]) {
       contributors.splice(0, contributors.length, { id, kind: "agent_of_human", machine: true });
       const deck = Deck.fromUpdate(await stateOf(call));
       deck.addSlide({ layout: "blank" }, ada);
