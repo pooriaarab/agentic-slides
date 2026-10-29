@@ -1,7 +1,7 @@
 import { createApp } from "./api.js";
 import { ConfigError, parseTokens, tokenAuth, type Authenticator } from "./auth.js";
 import { createService } from "./service.js";
-import { MemoryBlobs, MemoryStore } from "./store/memory.js";
+import { createMemoryBlobs, createMemoryStore } from "agentic-identity";
 
 export interface WorkerEnv {
   /** Secret. `token=kind:name,token=kind:name`. With none set, every API call is refused. */
@@ -13,7 +13,7 @@ export interface WorkerEnv {
 // A stopgap: decks live in memory, per isolate. Another isolate does not see them, and a restart loses
 // them. The Worker refuses every request until SLIDES_UNSAFE_MEMORY_STORE=1. Swap in durable adapters
 // behind the same Store and Blobs ports for real use.
-const service = createService({ store: new MemoryStore(), blobs: new MemoryBlobs() });
+const service = createService({ store: createMemoryStore(), blobs: createMemoryBlobs() });
 
 function authenticator(config: string | undefined): Authenticator {
   try {

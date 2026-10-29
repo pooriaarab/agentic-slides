@@ -9,7 +9,7 @@ import { imagePaths } from "./core/outline.js";
 import { PRINCIPAL_KINDS, SlidesError, fail, parsePrincipal, type Principal } from "./core/principal.js";
 import { DEFAULT_LIMITS } from "./export/limits.js";
 import { createService } from "./service.js";
-import { FileBlobs, FileStore } from "./store/file.js";
+import { createFileBlobs, createFileStore } from "./store/file.js";
 import { VERSION } from "./version.js";
 
 class UsageError extends Error {}
@@ -110,7 +110,7 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
       await startMcp({ dir, author: named ? parsePrincipal(named) : undefined });
       return 0;
     }
-    const service = createService({ store: new FileStore(dir), blobs: new FileBlobs(dir) });
+    const service = createService({ store: createFileStore(dir), blobs: createFileBlobs(dir) });
     const print = (value: unknown) => console.log(JSON.stringify(value));
     switch (command) {
       case "new":

@@ -7,7 +7,7 @@ import { checkImageSrc, isBlobRef } from "./core/model.js";
 import { fail, type Principal } from "./core/principal.js";
 import { DEFAULT_LIMITS, checkDeckSize, tooManyPixels, type Limits } from "./export/limits.js";
 import { renderPdf } from "./export/pdf.js";
-import type { Blobs, Store } from "./ports.js";
+import { StoreConflictError, type Blobs, type Store, type StoreOps } from "agentic-identity";
 import { renderDeck } from "./render/html.js";
 import { renderPresent } from "./render/present.js";
 
@@ -32,26 +32,40 @@ export interface Ports {
 /** The operations behind the CLI, the MCP server, and the HTTP API. Slide positions are 1-based here. */
 export function createService({ store, blobs }: Ports, overrides: Partial<Limits> = {}) {
   const limits: Limits = { ...DEFAULT_LIMITS, ...overrides };
-  async function load(id: string): Promise<Deck> {
+  const checkId = (id: string) => {
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id)) fail("INVALID_ID", `"${id}" is not a valid deck id`);
-    const saved = await store.get<{ update: string }>(COLLECTION, id);
+  };
+
+  async function load(id: string, ops: StoreOps = store): Promise<Deck> {
+    checkId(id);
+    const saved = await ops.get<{ update: string }>(COLLECTION, id);
     return saved ? Deck.fromUpdate(fromBase64(saved.update)) : fail("NO_DECK", `no deck "${id}"`);
   }
 
-  async function save(id: string, deck: Deck): Promise<void> {
-    await store.put(COLLECTION, id, { update: toBase64(deck.encode()), title: deck.outline().title });
+  const save = (ops: StoreOps, id: string, deck: Deck) =>
+    ops.put(COLLECTION, id, { update: toBase64(deck.encode()), title: deck.outline().title });
+
+  /** A transaction that kept conflicting gave up and wrote nothing. Report it with a code. */
+  async function transact<R>(fn: (tx: StoreOps) => Promise<R>): Promise<R> {
+    try {
+      return await store.transaction(fn);
+    } catch (error) {
+      if (error instanceof StoreConflictError) fail("STORE_BUSY", "another writer changed the deck. Try again");
+      throw error;
+    }
   }
 
   /**
-   * Load the deck under the doc's lock, so the load sees every earlier save, run `fn`,
-   * then `after` (blob writes: only once the edit has passed), then save.
+   * Load the deck in a transaction, so a write from another caller makes it run again, run `fn`,
+   * then `after` (blob writes: only once the edit has passed), then save. The function can run
+   * more than once, so `after` must be safe to repeat.
    */
   async function mutate<R>(id: string, fn: (deck: Deck) => R, after?: () => Promise<void>): Promise<R> {
-    return store.exclusive(COLLECTION, id, async () => {
-      const deck = await load(id);
+    return transact(async (tx) => {
+      const deck = await load(id, tx);
       const result = fn(deck);
       await after?.();
-      await save(id, deck);
+      await save(tx, id, deck);
       return result;
     });
   }
@@ -72,10 +86,11 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
       map[path] = `blob:${key}`;
     }
     for (const match of outline.matchAll(/\]\((blob:[^)\s]+)\)/g)) {
-      if (isBlobRef(match[1]) && (await blobs.get(match[1].slice(5)))) map[match[1]] = match[1];
+      if (isBlobRef(match[1]) && (await blobs.head(match[1].slice(5)))) map[match[1]] = match[1];
     }
+    // The key is the hash of the bytes, so a key that exists already holds these bytes.
     const write = async () => {
-      for (const { key, data, contentType } of pending) await blobs.put(key, data, { contentType });
+      for (const { key, data, contentType } of pending) await blobs.put(key, data, { contentType, ifNoneMatch: "*" });
     };
     return { map, write };
   }
@@ -100,10 +115,10 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
   return {
     async create(input: { title: string; author: Principal; id?: string }): Promise<{ id: string }> {
       const id = input.id ?? `d${bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(5)))}`;
-      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id)) fail("INVALID_ID", `"${id}" is not a valid deck id`);
-      await store.exclusive(COLLECTION, id, async () => {
-        if (await store.get(COLLECTION, id)) fail("DECK_EXISTS", `deck "${id}" exists`);
-        await save(id, Deck.create({ title: input.title, author: input.author }));
+      checkId(id);
+      await transact(async (tx) => {
+        if (await tx.get(COLLECTION, id)) fail("DECK_EXISTS", `deck "${id}" exists`);
+        await save(tx, id, Deck.create({ title: input.title, author: input.author }));
       });
       return { id };
     },
@@ -133,7 +148,7 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
     },
 
     async editElement(id: string, slide: SlideSel, elementId: string, patch: ElementPatch, author: Principal): Promise<void> {
-      if (typeof patch?.src === "string" && !(await blobs.get(checkImageSrc(patch.src).slice(5)))) {
+      if (typeof patch?.src === "string" && !(await blobs.head(checkImageSrc(patch.src).slice(5)))) {
         fail("IMAGE_MISSING", `image "${patch.src}" is not in the blob store`);
       }
       await mutate(id, (d) => d.editElement(slideRef(slide), elementId, patch, author));

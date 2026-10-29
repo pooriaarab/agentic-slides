@@ -6,7 +6,7 @@ import { COMMAND } from "./brand.js";
 import { SlidesError, checkAuthor, fail, type Principal } from "./core/principal.js";
 import { decodeImages, images, patch } from "./schemas.js";
 import { createService, type Service } from "./service.js";
-import { FileBlobs, FileStore } from "./store/file.js";
+import { createFileBlobs, createFileStore } from "./store/file.js";
 import { VERSION } from "./version.js";
 
 export interface McpDeps {
@@ -80,6 +80,6 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
 
 export async function startMcp(options: { dir?: string; author?: Principal } = {}): Promise<void> {
   const dir = options.dir ?? process.env.SLIDES_DIR ?? ".slides";
-  const service = createService({ store: new FileStore(dir), blobs: new FileBlobs(dir) });
+  const service = createService({ store: createFileStore(dir), blobs: createFileBlobs(dir) });
   await createMcpServer({ service, author: options.author }).connect(new StdioServerTransport());
 }

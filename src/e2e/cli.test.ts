@@ -117,14 +117,14 @@ describe("slides CLI", () => {
 
   test("a bad outline exits 1 with every issue, and the store does not change", () => {
     run(["new", "Bad", "--id", "bad", "--as", AGENT]);
-    const before = readFileSync(join(work, ".slides", "store", "decks", "bad.json"), "utf8");
+    const before = readFileSync(join(work, ".slides", "store.json"), "utf8");
     const result = run(["add", "bad", "--outline", "-", "--as", AGENT], {
       input: "layout: zigzag\n# A\n---\n# B\n![x](missing.png)\n---\n# C\n![x](https://cdn.example.com/c.png)",
     });
     expect(result.code).toBe(1);
     const { error } = json(result.err);
     expect(error.issues.map((i: any) => [i.code, i.slide])).toEqual([["UNKNOWN_LAYOUT", 1], ["IMAGE_MISSING", 2], ["REMOTE_ASSET", 3]]);
-    expect(readFileSync(join(work, ".slides", "store", "decks", "bad.json"), "utf8")).toBe(before);
+    expect(readFileSync(join(work, ".slides", "store.json"), "utf8")).toBe(before);
     expect(run(["add", "bad", "--outline", "-", "--as", AGENT], { input: "" }).err).toContain("EMPTY_OUTLINE");
   });
 
