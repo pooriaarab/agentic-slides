@@ -74,7 +74,9 @@
     "ci:local": "npm run build && npm run typecheck && npm test && npm run e2e",
     "deploy:demo": "npm run build && wrangler deploy -c wrangler.demo.jsonc",
     "e2e": "playwright test",
-    "e2e:screenshots": "UPDATE_SCREENSHOTS=1 playwright test"
+    "e2e:screenshots": "UPDATE_SCREENSHOTS=1 playwright test",
+    "dev": "npm run build && WRANGLER_SEND_METRICS=false wrangler dev --var SLIDES_REGION:unknown",
+    "dev:smoke": "node scripts/dev-smoke.mjs"
   },
   "dependencies": {
     "@cantoo/fontkit": "^2.0.12",
