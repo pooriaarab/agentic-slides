@@ -142,6 +142,20 @@ describe("slidesAccount", () => {
     expect((await decks.outline("d")).slides[0]!.createdBy).toEqual({ kind: "agent", name: "agent_of_human_eve" });
   });
 
+  it("clears the live room of each deck that it deletes or changes", async () => {
+    const { store, sharing, decks, make } = await setup();
+    await make("mine", ana);
+    await make("theirs", { kind: "human", id: "bo" });
+    await make("untouched", { kind: "human", id: "bo" });
+    await sharing.grant(ctx({ kind: "human", id: "bo" }), "theirs", ana, "editor");
+    await decks.addSlides("theirs", { outline: "# Mine", author: { kind: "human", name: "ana" } });
+    const rooms: string[] = [];
+
+    await slidesAccount.eraseAccount(ana, { store, live: { erase: async (id) => void rooms.push(id) } });
+
+    expect([...new Set(rooms)].sort()).toEqual(["mine", "theirs"]);
+  });
+
   it("keeps the kind of an erased agent author", async () => {
     const { store, decks, make } = await setup();
     await make("d", { kind: "human", id: "bo" });

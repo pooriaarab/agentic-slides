@@ -17,6 +17,11 @@ export const ERASED_NAME = "erased";
 
 export interface SlidesAccountDeps {
   store: Store;
+  /**
+   * The live rooms (`createLive(env).erase`, as the delete route uses). A room keeps its own copy of the deck and of its authors, so
+   * the erase clears the room of each deck that it deletes or changes. Without it, the host clears those rooms itself.
+   */
+  live?: { erase(deckId: string): Promise<unknown> };
 }
 
 export type SlidesCollection = "decks" | "grants" | "authored";
@@ -32,8 +37,7 @@ export interface SlidesAccount {
   /**
    * Hard deletes each deck where the subject is the only owner, with its sharing records. It removes the other roles of the
    * subject, and it replaces the subject as author in the decks that stay with the name `erased` (the kind stays). Counts by
-   * the collection names of the export. A repeat counts zero. Run it with writes stopped, and clear live rooms in the host:
-   * the plug-in does not reach them. Images stay in the blob store: other decks can use the same image.
+   * the collection names of the export. A repeat counts zero. Run it with writes stopped. With `deps.live`, it clears the room of each deck that it deletes or changes. Without it, the host must do that. Images stay in the blob store: other decks can use the same image.
    */
   eraseAccount(subject: Subject, deps: SlidesAccountDeps): Promise<Record<SlidesCollection, number>>;
 }
@@ -63,7 +67,7 @@ async function grantsOf(store: Store, subject: Subject) {
 /** The authors of a subject. A subject with a delegated id stands for the delegated token only: a plain `agent` with that name is another principal. */
 const authorsOf = (subject: Subject) => {
   const all = principalsOf(subject);
-  return all.length > 1 ? all.slice(1) : all;
+  return all.length > 1 ? all.filter((p) => p.kind !== "agent") : all;
 };
 
 export const slidesAccount: SlidesAccount = {
@@ -90,7 +94,7 @@ export const slidesAccount: SlidesAccount = {
     };
   },
 
-  async eraseAccount(subject, { store }) {
+  async eraseAccount(subject, { store, live }) {
     const who = checkSubject(subject);
     const sharing = createSharing(store);
     const ctx = { principalId: who.id, kind: who.kind, chain: [{ id: who.id, kind: who.kind }], scopes: [`${DECK}:admin`] };
@@ -110,6 +114,8 @@ export const slidesAccount: SlidesAccount = {
       }
       // The deck goes first. A stop leaves the owner record, and the next run finds it and goes on.
       if (await store.get(COLLECTION, deckId)) {
+        // The room goes first: it keeps the deck, and a client that is in it could save the deck again.
+        await live?.erase(deckId);
         await store.transaction(async (tx) => {
           await tx.delete(COLLECTION, deckId);
           await tx.delete(INDEX, deckId);
@@ -117,12 +123,14 @@ export const slidesAccount: SlidesAccount = {
         counts.decks++;
       }
       await sharing.deleteResource(ctx, deckId);
+      // A client that joined the room while the deck went could have filled it again.
+      await live?.erase(deckId);
       counts.grants++;
     }
     const authors = authorsOf(who);
     for await (const { id } of pages(store, COLLECTION)) {
       // One deck at a time in a transaction, so a write from another caller makes it run again.
-      counts.authored += await store.transaction(async (tx) => {
+      const changed = await store.transaction(async (tx) => {
         const saved = await tx.get<{ update: string; title?: string }>(COLLECTION, id);
         if (!saved) return 0;
         const deck = Deck.fromUpdate(fromBase64(saved.update));
@@ -136,6 +144,9 @@ export const slidesAccount: SlidesAccount = {
         }
         return changed;
       });
+      counts.authored += changed;
+      // The room keeps the old names. The next connect loads the saved deck again.
+      if (changed > 0) await live?.erase(id);
     }
     return counts;
   },
