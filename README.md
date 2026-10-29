@@ -8,7 +8,7 @@
 Build and present slide decks with people and agents.
 
 > Status: early. The deck library, the HTML render, the CLI, the MCP server,
-> PDF export, the HTTP API, and live rooms work. ODP and PPTX export are not ready yet.
+> PDF export, the HTTP API, live rooms, and the web UI work. ODP and PPTX export are not ready yet.
 
 ## Install
 
@@ -131,6 +131,10 @@ WRANGLER_SEND_METRICS=false npx wrangler dev --var SLIDES_REGION:unknown \
 
 Open `http://localhost:8787/` and type a token. The token names who edits, and a tab keeps it until you
 close it. An agent that uses the other token appears in presence, and its edits get the agent mark.
+
+To serve the UI from the npm package in your own Worker, copy `wrangler.jsonc` from this repo. Change `main` to
+`./node_modules/agentic-slides/dist/live-worker.js`, and change `assets.directory` to `./node_modules/agentic-slides/dist/ui`.
+Keep the `DB`, `IMAGES`, and `SYNC_ROOM` bindings. The package ships `dist/ui`, so you do not need the source.
 
 Test the UI in a browser. The tests start their own Workers, so run `npm run build` first. They need
 Chromium once (`npx playwright install chromium`):

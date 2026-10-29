@@ -2,7 +2,12 @@
 
 This file lists the notable changes to this project, by version.
 
-## Unreleased
+## 0.5.0 - 2026-10-29
+
+### Breaking changes
+
+- None. The HTTP API, the SDK, the CLI, and the MCP server keep their routes and their names. Hosts that deploy
+  with `wrangler.jsonc` need one step, which is in "Changed".
 
 ### Added
 
@@ -12,6 +17,14 @@ This file lists the notable changes to this project, by version.
 - `npm run e2e`: Playwright tests of the UI against `wrangler dev`, an axe WCAG 2.2 AA check of each view
   in light and dark, and `npm run e2e:screenshots` for the screenshots in `docs/screenshots`. `ci:local` and the CI workflow run them.
 - The room route accepts the token as the WebSocket subprotocol `bearer.<token>`, for browsers.
+
+### Changed
+
+- `wrangler.jsonc` serves the UI from `./dist/ui` as static assets. Run `npm run build` before `wrangler deploy`,
+  so that `dist/ui` exists to serve.
+- `npm run build` also bundles the UI. `prepack` runs it, so the npm package has `dist/ui`.
+- `npm run ci:local` runs the browser tests too (`npm run e2e`). Run `npx playwright install chromium` once first.
+- The CI workflow runs `npm run e2e` after `npm test`.
 
 ## 0.4.0 - 2026-10-29
 
