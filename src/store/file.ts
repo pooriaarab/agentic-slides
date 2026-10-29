@@ -46,15 +46,21 @@ function migrateStoreFile(path: string) {
       try {
         if (Date.now() - statSync(lock).mtimeMs > 3_000) unlinkSync(lock);
       } catch {}
-      if (Date.now() - start > 10_000) throw new StoreConflictError("the store file is locked by another process");
+      if (Date.now() - start > 5_000) throw new StoreConflictError("the store file is locked by another process");
     }
   }
   try {
     // Another process can have converted the file while this one waited, so read it again.
-    const next = convert(readFileSync(path, "utf8"));
+    const seen = readFileSync(path, "utf8");
+    const next = convert(seen);
     if (next === null) return;
     const temp = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
     writeFileSync(temp, next, { mode: 0o600 });
+    // A stall can let another process take the lock over. Then leave its file as it is.
+    if (readFileSync(lock, "utf8") !== mine || readFileSync(path, "utf8") !== seen) {
+      rmSync(temp, { force: true });
+      throw new StoreConflictError("the store file changed during the migration");
+    }
     renameSync(temp, path);
   } finally {
     try {
@@ -79,7 +85,8 @@ async function again<T>(waitMs: number, run: () => Promise<T>): Promise<T> {
 /**
  * A Store kept in one JSON file under `dir`. It is the file adapter of `agentic-identity`. A write or a
  * transaction that conflicts with another process runs again until `waitMs` has passed. A read does not
- * conflict, so it does not run again.
+ * conflict, so it does not run again. The lock wait of the identity adapter blocks the thread for up to
+ * 5 seconds, so a call can take `waitMs` plus about 5 seconds before it fails.
  */
 export function createFileStore(dir: string, options: FileStoreOptions = {}): Store {
   const { waitMs = 30_000, ...rest } = options;
@@ -102,18 +109,22 @@ async function migrateBlobs(dir: string, blobs: Blobs) {
   if (!existsSync(root)) return;
   for (const name of readdirSync(root)) {
     if (!/^[0-9a-f]{64}$/.test(name)) continue;
-    const file = join(root, name);
-    let data: Uint8Array;
+    // One bad file must not stop the others, or every later blob call. A file that fails stays in place.
     try {
-      data = new Uint8Array(readFileSync(file));
-    } catch {
-      continue;
-    }
-    const typeFile = `${file}.type`;
-    const contentType = existsSync(typeFile) ? readFileSync(typeFile, "utf8") || undefined : undefined;
-    await blobs.put(`sha256-${createHash("sha256").update(data).digest("hex")}`, data, { contentType, ifNoneMatch: "*" });
-    rmSync(file, { force: true });
-    rmSync(typeFile, { force: true });
+      const file = join(root, name);
+      const data = new Uint8Array(readFileSync(file));
+      const key = `sha256-${createHash("sha256").update(data).digest("hex")}`;
+      // Only a file that the old adapter wrote for this key. Any other file is not ours to move or delete.
+      if (createHash("sha256").update(key).digest("hex") !== name) continue;
+      let contentType: string | undefined;
+      try {
+        contentType = readFileSync(`${file}.type`, "utf8") || undefined;
+      } catch {}
+      await blobs.put(key, data, { contentType, ifNoneMatch: "*" });
+      if (!(await blobs.head(key))) continue;
+      rmSync(file, { force: true });
+      rmSync(`${file}.type`, { force: true });
+    } catch {}
   }
 }
 
@@ -121,10 +132,7 @@ async function migrateBlobs(dir: string, blobs: Blobs) {
 export function createFileBlobs(dir: string, options: Omit<FileBlobsOptions, "dir"> = {}): Blobs {
   const blobs = identityBlobs({ ...options, dir });
   let ready: Promise<void> | undefined;
-  const migrated = () => (ready ??= migrateBlobs(dir, blobs).catch((error: unknown) => {
-    ready = undefined;
-    throw error;
-  }));
+  const migrated = () => (ready ??= migrateBlobs(dir, blobs));
   return {
     region: blobs.region,
     put: async (key, data, opts) => (await migrated(), blobs.put(key, data, opts)),

@@ -5,7 +5,7 @@
 //  4. A restart loses a committed edit, or brings back one that rolled back.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMemoryBlobs, createMemoryStore } from "agentic-identity";
@@ -109,6 +109,20 @@ describe("the file adapters on a folder of version 0.8.0", () => {
   });
 });
 
+describe("the old blob files", () => {
+  test("a file whose name does not match its bytes stays in place and the other blobs still work", async () => {
+    const dir = fresh();
+    mkdirSync(join(dir, "blobs"));
+    const odd = join(dir, "blobs", createHash("sha256").update("sha256-aaaa").digest("hex"));
+    writeFileSync(odd, "truncated");
+    const blobs = createFileBlobs(dir);
+    expect(await blobs.head("sha256-aaaa")).toBeNull();
+    expect(readFileSync(odd, "utf8")).toBe("truncated");
+    await blobs.put("k", PNG, { contentType: "image/png" });
+    expect((await blobs.head("k"))?.contentType).toBe("image/png");
+  });
+});
+
 describe("the file store lock", () => {
   async function withLock(age: number, waitMs?: number) {
     const dir = fresh();
@@ -133,7 +147,7 @@ describe("the file store lock", () => {
     // A second process renews the lock, as a live writer does, for longer than the adapter waits.
     const holder = spawn(process.execPath, ["-e", `const fs=require("fs");const end=Date.now()+9000;const t=setInterval(()=>{const n=new Date();fs.writeFileSync(process.argv[1],"live");fs.utimesSync(process.argv[1],n,n);if(Date.now()>end){clearInterval(t);fs.unlinkSync(process.argv[1])}},200)`, lock], { stdio: "ignore" });
     try {
-      await sleep(600);
+      for (let i = 0; i < 100 && !(existsSync(lock) && readFileSync(lock, "utf8") === "live"); i++) await sleep(50);
       const error = await service.addSlides("locked", { outline: "# No", author }).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(SlidesError);
       expect((error as SlidesError).code).toBe("STORE_BUSY");
