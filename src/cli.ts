@@ -130,7 +130,7 @@ async function readImages(text: string, base: string): Promise<Record<string, Ui
 function parseSubject(text: string | undefined): Subject {
   const cut = text?.indexOf(":") ?? -1;
   const kind = text?.slice(0, cut);
-  if (text === undefined || cut < 1 || (kind !== "human" && kind !== "agent")) throw new UsageError("--subject needs <human|agent>:<id>, for example human:bob");
+  if (text === undefined || cut < 1 || cut === text.length - 1 || (kind !== "human" && kind !== "agent")) throw new UsageError("--subject needs <human|agent>:<id>, for example human:bob");
   return { kind, id: text.slice(cut + 1) };
 }
 
@@ -151,6 +151,11 @@ interface ShareArgs {
 async function share(command: string, client: SlidesClient, { deck, values, positionals, need, number }: ShareArgs): Promise<void> {
   const print = (value: unknown) => console.log(JSON.stringify(value));
   const expiresInMs = number(values["expires-in-ms"], "expires-in-ms");
+  if (expiresInMs === 0) throw new UsageError("--expires-in-ms needs a whole number above 0");
+  const named = positionals[0];
+  // `deck` is the first word. The commands that name a deck stop here, before any call, when it is missing.
+  if (command !== "accept-invite" && !named) throw new UsageError(`${command} needs a deck id`);
+  if (command === "accept-invite" && !named) throw new UsageError("accept-invite needs an invite id");
   switch (command) {
     case "access":
       return print(await client.access(need(deck, "deck"), { limit: number(values.limit, "limit"), cursor: values.cursor, inviteCursor: values["invite-cursor"], linkCursor: values["link-cursor"] }));
@@ -163,7 +168,7 @@ async function share(command: string, client: SlidesClient, { deck, values, posi
     case "invite":
       return print(await client.invite(need(deck, "deck"), { role: parseRole(values.role), email: values.email, handle: values.handle, expiresInMs }));
     case "accept-invite":
-      await client.acceptInvite(need(positionals[0], "invite id"));
+      await client.acceptInvite(named!);
       return print({ ok: true });
     case "share-link":
       return print(await client.createShareLink(need(deck, "deck"), { role: parseRole(values.role), expiresInMs, signedInOnly: values["signed-in-only"] }));

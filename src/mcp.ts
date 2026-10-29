@@ -95,13 +95,13 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
     const role = z.enum(["owner", "editor", "commenter", "viewer"]).describe("owner may share and delete. editor may change slides. commenter and viewer may read.");
     const subject = z.object({ kind: z.enum(["human", "agent"]), id: z.string() }).describe("A person (human) or an agent. See `subject` in the answer of GET /me for a token.");
     const owner = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
-    tool("list_access", "List who can reach a deck: grants, invites, and share links. Only an owner may. A link token and an invite email are never shown.", { deck, limit: z.number().optional(), cursor: z.string().optional(), inviteCursor: z.string().optional(), linkCursor: z.string().optional() }, read, (a) => sharing.access(a.deck, a));
+    tool("list_access", "List who can reach a deck: grants, invites, and share links. Only an owner may. A link token and an invite email are never shown.", { deck, limit: z.number().int().optional(), cursor: z.string().optional(), inviteCursor: z.string().optional(), linkCursor: z.string().optional() }, read, (a) => sharing.access(a.deck, { limit: a.limit, cursor: a.cursor, inviteCursor: a.inviteCursor, linkCursor: a.linkCursor }));
     tool("grant_access", "Give a person or an agent a role on a deck. Only an owner may.", { deck, subject, role }, owner, async (a) => (await sharing.grant(a.deck, { subject: a.subject, role: a.role }), { ok: true }));
     tool("revoke_access", "Take a role away from a person or an agent. The last owner cannot be removed.", { deck, subject }, { readOnlyHint: false, destructiveHint: true, openWorldHint: false }, async (a) => (await sharing.revoke(a.deck, a.subject), { ok: true }));
     tool(
       "invite",
       "Invite a person by email, or an agent by handle. It sends no message: give the invite id to the invitee. Give email or handle, not both.",
-      { deck, role, email: z.string().optional(), handle: z.string().optional(), expiresInMs: z.number().optional() },
+      { deck, role, email: z.string().optional(), handle: z.string().optional(), expiresInMs: z.number().int().optional() },
       owner,
       (a) => sharing.invite(a.deck, { role: a.role, email: a.email, handle: a.handle, expiresInMs: a.expiresInMs }),
     );
@@ -109,7 +109,7 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
     tool(
       "create_share_link",
       "Make a share link for a deck. The token comes back once. A link gives read access only.",
-      { deck, role, expiresInMs: z.number().optional(), signedInOnly: z.boolean().optional() },
+      { deck, role, expiresInMs: z.number().int().optional(), signedInOnly: z.boolean().optional() },
       owner,
       (a) => sharing.createShareLink(a.deck, { role: a.role, expiresInMs: a.expiresInMs, signedInOnly: a.signedInOnly }),
     );

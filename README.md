@@ -299,7 +299,7 @@ await slides.revoke("talk", { kind: "human", id: "bob" });
 
 There is one method for each route: `health`, `me`, `createDeck`, `outline`, `addSlides`, `setSlide`,
 `editElement`, `moveSlide`, `deleteSlide`, `render`, `exportPdf`, `state`, and `checkpoint`. For sharing, it has
-`access`, `grant`, `revoke`, `invite`, `acceptInvite`, `createShareLink`, `revokeShareLink`, and `readShared`. Each method
+`access`, `grant`, `revoke`, `invite`, `acceptInvite`, `createShareLink`, `revokeShareLink`, and `readShared`. `readShared` also sends the token of the client, and the server needs it to be valid. A visitor with only a link token reads with `GET /shared/:deck` and the header. Each method
 takes `{ signal }` as its last argument. Pass `fetch` to `createClient` to replace the global one.
 
 When the API refuses a call, the method throws `SlidesApiError`. It has `status` (the HTTP status),

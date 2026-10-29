@@ -95,6 +95,13 @@ describe("the CLI shares a deck", () => {
     expect(cli(["grant", "talk", "--subject", "bob", "--role", "viewer"], ADA).code).toBe(2);
     expect(cli(["grant", "talk", "--subject", "human:bob", "--role", "boss"], ADA).code).toBe(2);
 
+    // A usage mistake exits 2 before any call. The address below would fail a call with exit 1.
+    const dead = { SLIDES_LIVE_URL: "http://127.0.0.1:1", SLIDES_LIVE_TOKEN: ADA };
+    const offline = (args: string[]) => spawnSync("node", [join(process.cwd(), "dist", "cli.js"), ...args], { cwd: work, encoding: "utf8", env: { PATH: process.env.PATH, ...dead } }).status;
+    for (const args of [["grant", "--subject", "human:bob", "--role", "viewer"], ["access"], ["accept-invite"], ["revoke", "talk", "--subject", "human:"], ["share-link", "talk", "--role", "viewer", "--expires-in-ms", "0"], ["revoke-link", "talk"]]) {
+      expect(offline(args), args.join(" ")).toBe(2);
+    }
+
     const link = JSON.parse(cli(["share-link", "talk", "--role", "viewer", "--expires-in-ms", "600000"], ADA).out);
     expect(link.token).toEqual(expect.any(String));
     expect((await as(BOB).readShared("talk", link.token)).title).toBe("Talk");
