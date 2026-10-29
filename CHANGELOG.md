@@ -2,6 +2,13 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.13.3 - 2026-10-29
+
+### Changed
+
+- `agentic-design` is now 0.8.x. The range moves from `^0.5.0` to `^0.8.0`. The range did not accept 0.8.0, so the agentic-* packages could not be installed together with one copy of `agentic-design`. At release time, 0.8.0 was the newest `agentic-design` on npm.
+- The build, the typecheck, the unit and render tests, and the end-to-end tests pass on `agentic-design` 0.8.0. The UI code and the render code did not need a change.
+
 ## 0.13.2 - 2026-10-29
 
 ### Fixed
