@@ -1,7 +1,7 @@
 import { createMemoryBlobs, createMemoryStore } from "agentic-identity";
 import type { Grant, Realtime } from "agentic-realtime";
 import * as Y from "yjs";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { createApp } from "./api.js";
 import { parseTokens, tokenAuth } from "./auth.js";
 import { Deck } from "./core/deck.js";
@@ -19,6 +19,7 @@ const bot = { kind: "agent_of_human", name: "bot" } as const;
 
 function setup(options: { live?: boolean } = {}) {
   const grants: { id: string; grant: Grant }[] = [];
+  const erased: string[] = [];
   const contributors: { id: string; kind: string; machine: boolean }[] = [];
   const live: Realtime = {
     connect: async (id, _request, grant) => (grants.push({ id, grant }), new Response("joined", { status: 200 })),
@@ -30,7 +31,7 @@ function setup(options: { live?: boolean } = {}) {
     revoke: async () => Promise.reject(new Error("not used by these routes")),
     updateRole: async () => Promise.reject(new Error("not used by these routes")),
     roleFor: async () => Promise.reject(new Error("not used by these routes")),
-    erase: async () => Promise.reject(new Error("not used by these routes")),
+    erase: async (id) => (erased.push(id), { sockets: 0 }),
     exportHistory: async () => Promise.reject(new Error("not used by these routes")),
     attribution: async () => Promise.reject(new Error("not used by these routes")),
   };
@@ -40,10 +41,35 @@ function setup(options: { live?: boolean } = {}) {
   const app = createApp({ service, auth: tokenAuth(tokens), principals, live: options.live === false ? undefined : () => live });
   const call = (method: string, path: string, init: { token?: string; body?: BodyInit | Uint8Array; headers?: Record<string, string> } = {}) =>
     app.request(`${BASE}${path}`, { method, headers: { ...(init.token ? { authorization: `Bearer ${init.token}` } : {}), ...init.headers }, body: init.body as BodyInit | undefined });
-  return { service, call, grants, app, contributors };
+  return { service, call, grants, app, contributors, erased };
 }
 
 const json = async (response: Response) => (await response.json()) as Record<string, any>;
+
+describe("a deck delete clears the live room", () => {
+  test("the room is erased before the deck is gone, and a missing deck erases nothing", async () => {
+    const { call, service, erased } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    expect((await call("DELETE", "/decks/nope", { token: HUMAN })).status).toBe(404);
+    expect(erased).toEqual([]);
+    expect((await call("DELETE", "/decks/t", { token: WATCHER })).status).toBe(403);
+    expect(erased).toEqual([]);
+    expect((await call("DELETE", "/decks/t", { token: HUMAN })).status).toBe(200);
+    expect(erased).toEqual(["t"]);
+    await expect(service.exists("t")).rejects.toMatchObject({ code: "NO_DECK" });
+  });
+
+  test("a room that cannot be erased keeps the deck, so the delete can be tried again", async () => {
+    const { call, service } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    const failing = createApp({ service, auth: tokenAuth(parseTokens(TOKENS)), live: () => ({ erase: async () => Promise.reject(new Error("room down")) }) as never });
+    const silence = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await failing.request(`${BASE}/decks/t`, { method: "DELETE", headers: { authorization: `Bearer ${HUMAN}` } })).status).toBe(500);
+    silence.mockRestore();
+    await expect(service.exists("t")).resolves.toBeUndefined();
+    expect((await call("DELETE", "/decks/t", { token: HUMAN })).status).toBe(200);
+  });
+});
 
 describe("token roles", () => {
   test("a token takes a role after a semicolon, and any other role is refused", () => {

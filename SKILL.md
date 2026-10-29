@@ -18,7 +18,7 @@ agentic-slides export talk --out talk.pdf
 ## Use the MCP server
 
 Start it with `agentic-slides mcp`. Call `list_decks` to find a deck. Then call `read_outline`. Then call `add_slides`,
-`set_slide`, `edit_element`, `move_slide`, or `delete_slide`. End with `export_pdf` or `render_deck`.
+`set_slide`, `edit_element`, `move_slide`, `delete_slide`, or `delete_deck`. End with `export_pdf` or `render_deck`.
 
 ## Work in a live room
 

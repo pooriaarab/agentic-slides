@@ -112,6 +112,18 @@ describe("a live call fails before it opens a room", () => {
     await expect(live(url).list({ limit: 3 })).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
   });
 
+  test("a deck delete sends DELETE, and a refusal keeps its code", async () => {
+    const url = await fake({
+      "DELETE /api/v1/slides/decks/d": () => ({ status: 200, body: { ok: true } }),
+      "DELETE /api/v1/slides/decks/gone": () => ({ status: 404, body: { error: { code: "NO_DECK", message: 'no deck "gone"' } } }),
+    });
+    const author = { kind: "agent", name: "x" } as const;
+    await expect(live(url).deleteDeck("d", author)).resolves.toBeUndefined();
+    await expect(live(url).deleteDeck("gone", author)).rejects.toMatchObject({ code: "NO_DECK" });
+    await expect(live(url).deleteDeck("../x", author)).rejects.toMatchObject({ code: "INVALID_ID" });
+    expect(requests).toEqual(["DELETE /api/v1/slides/decks/d", "DELETE /api/v1/slides/decks/gone"]);
+  });
+
   test("a deck id that is not valid never leaves the process", async () => {
     const url = await fake({ [ME]: () => agent });
     await expect(live(url).outline("../x")).rejects.toMatchObject({ code: "INVALID_ID" });

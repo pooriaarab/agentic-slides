@@ -35,7 +35,7 @@ afterAll(async () => {
 describe("slides MCP server", () => {
   test("lists the tools that mirror the CLI", async () => {
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(["add_slides", "create_deck", "delete_slide", "edit_element", "export_pdf", "list_decks", "move_slide", "read_outline", "render_deck", "set_slide"]);
+    expect(names).toEqual(["add_slides", "create_deck", "delete_deck", "delete_slide", "edit_element", "export_pdf", "list_decks", "move_slide", "read_outline", "render_deck", "set_slide"]);
   });
 
   test("edits a deck that the CLI made, and labels every edit as an agent's", async () => {
@@ -60,6 +60,16 @@ describe("slides MCP server", () => {
     expect(listed.body.decks.find((d: any) => d.id === "shared")).toMatchObject({ title: "Shared", machineMade: true });
     expect((await call("list_decks", { limit: 0 })).body.error.code).toBe("BAD_PATCH");
     expect((await call("list_decks", { cursor: "bad" })).isError).toBe(true);
+  });
+
+  test("deletes a whole deck, and a second delete is NO_DECK", async () => {
+    await call("create_deck", { title: "Temp", id: "temp" });
+    expect((await call("delete_deck", { deck: "temp" })).body).toEqual({ ok: true });
+    expect((await call("read_outline", { deck: "temp" })).body.error.code).toBe("NO_DECK");
+    const again = await call("delete_deck", { deck: "temp" });
+    expect(again.isError).toBe(true);
+    expect(again.body.error.code).toBe("NO_DECK");
+    expect((await call("list_decks", {})).body.decks.map((d: any) => d.id)).not.toContain("temp");
   });
 
   test("a failed call is an error result with the issue list, never a success", async () => {

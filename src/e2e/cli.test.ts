@@ -74,6 +74,19 @@ describe("slides CLI", () => {
     expect(json(run(["list", "--cursor", "bad", ...dir]).err).error.code).toBe("BAD_PATCH");
   });
 
+  test("delete-deck removes the deck and its list entry", () => {
+    const dir = ["--dir", join(work, ".del")];
+    run(["new", "Doomed", "--id", "doomed", "--as", AGENT, ...dir]);
+    run(["new", "Kept", "--id", "kept", "--as", AGENT, ...dir]);
+    expect(run(["delete-deck", "doomed", ...dir]).code).toBe(2);
+    expect(json(run(["delete-deck", ...dir, "--as", AGENT]).err).error.code).toBe("INVALID_ID");
+    expect(json(run(["delete-deck", "../x", "--as", AGENT, ...dir]).err).error.code).toBe("INVALID_ID");
+    expect(json(run(["delete-deck", "doomed", "--as", AGENT, ...dir]).out)).toEqual({ ok: true });
+    expect(json(run(["outline", "doomed", ...dir]).err).error.code).toBe("NO_DECK");
+    expect(json(run(["delete-deck", "doomed", "--as", AGENT, ...dir]).err).error.code).toBe("NO_DECK");
+    expect(json(run(["list", ...dir]).out).decks.map((d: any) => d.id)).toEqual(["kept"]);
+  });
+
   test("a deck id cannot reach outside the store", () => {
     for (const id of ["../x", "a/b", ".hidden"]) expect(json(run(["outline", id]).err).error.code).toBe("INVALID_ID");
     expect(json(run(["outline", "nope"]).err).error.code).toBe("NO_DECK");

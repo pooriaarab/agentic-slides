@@ -57,6 +57,16 @@ describe("the remote client on a real Worker", () => {
     await human.checkpoint("plan", state);
   }, 60_000);
 
+  test("deletes a deck, and a viewer cannot", async () => {
+    const human = as(HUMAN);
+    await human.createDeck({ title: "Gone", id: "gone" });
+    expect(await refused(as(WATCHER).deleteDeck("gone"))).toMatchObject({ status: 403, code: "FORBIDDEN" });
+    await human.deleteDeck("gone");
+    expect(await refused(human.outline("gone"))).toMatchObject({ status: 404, code: "NO_DECK" });
+    expect(await refused(human.deleteDeck("gone"))).toMatchObject({ status: 404, code: "NO_DECK" });
+    expect((await human.listDecks()).decks.map((d) => d.id)).not.toContain("gone");
+  }, 60_000);
+
   test("a bad token is UNAUTHORIZED with status 401", async () => {
     const error = await refused(as("wrong-token-0123456789-abcdefghij").outline("plan"));
     expect(error).toMatchObject({ status: 401, code: "UNAUTHORIZED" });

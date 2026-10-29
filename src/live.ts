@@ -264,6 +264,11 @@ export function createLiveService(options: LiveOptions): Operations {
       if (decks.length !== sent.decks.length) return fail("LIVE_UNAVAILABLE", "the server sent a list that this client does not know");
       return { decks, nextCursor: typeof sent.nextCursor === "string" ? sent.nextCursor : undefined };
     },
+    async deleteDeck(id) {
+      checkId(id);
+      const response = await ask(options.server, options.token, `/decks/${id}`, { method: "DELETE" });
+      if (!response.ok) throw await refusal(response, "the server refused the request");
+    },
     outline: (id): Promise<DeckOutline> => read(id, (deck) => deck.outline()),
     async addSlides(id, input) {
       if (Object.keys(input.images ?? {}).length > 0) fail("UNSUPPORTED_IMAGE", NO_IMAGES);

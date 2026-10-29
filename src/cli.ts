@@ -50,6 +50,7 @@ Commands:
                                                   Change one element (x, y, w, h, text, ...).
   move <deck> --slide <n|id> --to <n>             Move a slide.
   delete <deck> --slide <n|id>                    Delete a slide.
+  delete-deck <deck>                              Delete a deck and its list entry. Images stay in the store.
   render <deck> [--present] [--out <file>]        Print a self-contained HTML page.
   export <deck> --out <file> [--format pdf]       Write the deck as a PDF.
   mcp                                             Start the MCP server on stdio.
@@ -163,6 +164,10 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
         break;
       case "delete":
         await service.deleteSlide(deck, need(values.slide, "slide"), author());
+        print({ ok: true });
+        break;
+      case "delete-deck":
+        await service.deleteDeck(need(deck, "deck"), author());
         print({ ok: true });
         break;
       case "render": {

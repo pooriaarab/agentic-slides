@@ -240,6 +240,35 @@ describe("deck list", () => {
   });
 });
 
+describe("deck delete", () => {
+  test("removes the deck and its list entry, and refuses a viewer, a missing deck, a bad id, and no token", async () => {
+    const call = appFor(`${TOKENS},viewer-token-0123456789-abcdefghij=human:eve;viewer`);
+    await call("POST", "/decks", { token: HUMAN, body: { title: "Plan", id: "plan" } });
+    await call("POST", "/decks", { token: HUMAN, body: { title: "Keep", id: "keep" } });
+    expect((await call("DELETE", "/decks/plan")).status).toBe(401);
+    expect((await call("DELETE", "/decks/plan", { token: "viewer-token-0123456789-abcdefghij" })).status).toBe(403);
+    expect((await call("GET", "/decks/plan", { token: HUMAN })).status).toBe(200);
+    expect((await call("DELETE", "/decks/..x", { token: AGENT })).status).toBe(400);
+    const deleted = await call("DELETE", "/decks/plan", { token: AGENT });
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toEqual({ ok: true });
+    expect((await call("GET", "/decks/plan", { token: HUMAN })).status).toBe(404);
+    expect((await call("DELETE", "/decks/plan", { token: HUMAN })).status).toBe(404);
+    const { decks } = (await (await call("GET", "/decks", { token: HUMAN })).json()) as { decks: { id: string }[] };
+    expect(decks.map((d) => d.id)).toEqual(["keep"]);
+  });
+
+  test("the service needs a valid author, and a deck id can be used again after a delete", async () => {
+    const service = createService({ store: createMemoryStore(), blobs: createMemoryBlobs() });
+    const author = { kind: "agent", name: "x" } as const;
+    await service.create({ title: "A", id: "a", author });
+    await expect(service.deleteDeck("a", { kind: "robot", name: "x" } as never)).rejects.toMatchObject({ code: "INVALID_AUTHOR" });
+    await expect(service.exists("a")).resolves.toBeUndefined();
+    await service.deleteDeck("a", author);
+    await expect(service.create({ title: "B", id: "a", author })).resolves.toEqual({ id: "a" });
+  });
+});
+
 describe("deck list pages", () => {
   test("lists the newest edit first, pages with a cursor, and refuses a bad limit or cursor", async () => {
     const call = appFor();

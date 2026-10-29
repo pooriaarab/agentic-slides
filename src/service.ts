@@ -5,7 +5,7 @@ import { Deck, type DeckOutline, type ElementPatch } from "./core/deck.js";
 import { isLayout, LAYOUT_NAMES, type LayoutName } from "./core/layouts.js";
 import { checkImageSrc, isBlobRef } from "./core/model.js";
 import { checkAuthors, checkDeckState } from "./core/verify.js";
-import { SlidesError, fail, type Principal } from "./core/principal.js";
+import { SlidesError, checkAuthor, fail, type Principal } from "./core/principal.js";
 import { DEFAULT_LIMITS, checkDeckSize, tooManyPixels, type Limits } from "./export/limits.js";
 import { renderPdf } from "./export/pdf.js";
 import { StoreConflictError, type Blobs, type Store, type StoreOps } from "agentic-identity";
@@ -176,6 +176,20 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
         return [{ id, title: data.title, editedBy: typeof who?.kind === "string" && typeof who.name === "string" ? (who as Principal) : undefined, machineMade: data.machineMade === true, savedAt: data.savedAt }];
       });
       return { decks, nextCursor: found.nextCursor };
+    },
+
+    /**
+     * Remove the deck and its list entry. Images stay in the blob store: other decks can use the same image.
+     * The live room and the sharing grants of the deck are not here. The HTTP route clears the room. A host that shares decks must remove the grants too.
+     */
+    async deleteDeck(id: string, author: Principal): Promise<void> {
+      checkAuthor(author);
+      checkId(id);
+      await transact(async (tx) => {
+        if (!(await tx.get(COLLECTION, id))) fail("NO_DECK", `no deck "${id}"`);
+        await tx.delete(COLLECTION, id);
+        await tx.delete(INDEX, id);
+      });
     },
 
     async outline(id: string): Promise<DeckOutline> {
