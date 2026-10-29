@@ -37,7 +37,7 @@ export interface SlidesAccount {
   /**
    * Hard deletes each deck where the subject is the only owner, with its sharing records. It removes the other roles of the
    * subject, and it replaces the subject as author in the decks that stay with the name `erased` (the kind stays). Counts by
-   * the collection names of the export. `grants` counts each role removed, the owner role of a deleted deck too. A repeat counts zero. Run it with writes stopped. With `deps.live`, it clears the room of each deck that it deletes or changes. Without it, the host must do that. Images stay in the blob store: other decks can use the same image.
+   * the collection names of the export. `grants` counts each role removed, the owner role of a deleted deck too. A repeat counts zero. Run it with writes stopped. With `deps.live`, it clears the room of each deck that it deletes or changes, and it reads each deck one more time. Without it, the host must do that. Images stay in the blob store: other decks can use the same image.
    */
   eraseAccount(subject: Subject, deps: SlidesAccountDeps): Promise<Record<SlidesCollection, number>>;
 }
@@ -70,10 +70,10 @@ const authorsOf = (subject: Subject) => {
   return all.length > 1 ? all.filter((p) => p.kind !== "agent") : all;
 };
 
-/** The subject, checked. The name `erased` is the placeholder of an earlier erase, so no one holds it as an id. */
+/** The subject, checked. The name `erased` is the placeholder of an earlier erase, so no author of a subject has it: not the id, and not the name of a delegated token. */
 const subjectOf = (subject: Subject): Subject => {
   const checked = checkSubject(subject);
-  return checked.id === ERASED_NAME ? fail("INVALID_AUTHOR", `"${ERASED_NAME}" is the placeholder of an erased author, not a subject`) : checked;
+  return authorsOf(checked).some((p) => p.name === ERASED_NAME) ? fail("INVALID_AUTHOR", `"${ERASED_NAME}" is the placeholder of an erased author, not a subject`) : checked;
 };
 
 export const slidesAccount: SlidesAccount = {

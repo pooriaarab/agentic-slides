@@ -164,6 +164,11 @@ describe("slidesAccount", () => {
     const erased: Subject = { kind: "human", id: "erased" };
     await expect(slidesAccount.exportAccount(erased, { store })).rejects.toMatchObject({ code: "INVALID_AUTHOR" });
     await expect(slidesAccount.eraseAccount(erased, { store })).rejects.toMatchObject({ code: "INVALID_AUTHOR" });
+    for (const kind of ["agent_of_human", "agent_of_agent", "user_token"]) {
+      const delegated: Subject = { kind: "agent", id: `${kind}_erased` };
+      await expect(slidesAccount.exportAccount(delegated, { store })).rejects.toMatchObject({ code: "INVALID_AUTHOR" });
+      await expect(slidesAccount.eraseAccount(delegated, { store })).rejects.toMatchObject({ code: "INVALID_AUTHOR" });
+    }
   });
 
   it("keeps the kind of an erased agent author", async () => {
