@@ -12,7 +12,20 @@ type El = SlideOutline["elements"][number];
 const POLL_MS = 3000;
 const clamp = (n: number, low: number, high: number) => Math.round(Math.min(Math.max(n, low), Math.max(low, high)));
 
-export function Editor({ client, id, token, canWrite, name }: { client: SlidesClient; id: string; token: string; canWrite: boolean; name: string }) {
+export interface EditorProps {
+  client: SlidesClient;
+  id: string;
+  canWrite: boolean;
+  name: string;
+  /** The bearer token for the live room. Without it, the editor shows no presence. */
+  token?: string;
+  /** The origin of the Worker for the live room. The default is the origin of the page. */
+  origin?: string;
+  /** Called with the 1-based slide number when the person picks Present. The default sets the page address. */
+  onPresent?: (slide: number) => void;
+}
+
+export function Editor({ client, id, token, origin, canWrite, name, onPresent }: EditorProps) {
   const [outline, setOutline] = useState<DeckOutline | undefined>();
   const [error, setError] = useState<string | undefined>();
   // The slide is kept by id, so a slide that another writer adds or moves does not change which slide is open.
@@ -24,7 +37,7 @@ export function Editor({ client, id, token, canWrite, name }: { client: SlidesCl
   const latest = useRef(0);
   const toast = useToast();
   const files = useRef<HTMLInputElement>(null);
-  const { peers, live } = usePresence(token, id, name);
+  const { peers, live } = usePresence(token, id, name, origin);
 
   const load = useCallback(async () => {
     const mine = ++latest.current;
@@ -137,7 +150,7 @@ export function Editor({ client, id, token, canWrite, name }: { client: SlidesCl
         <ToolbarButton label="Delete slide" icon={<TrashIcon />} disabled={!canWrite || !slide} onClick={() => (setDoomed(slide!.id), setConfirmDelete(true))} />
         <ToolbarSeparator />
         <ToolbarButton label="Refresh" icon={<RefreshIcon />} onClick={() => void load()} />
-        <ToolbarButton label="Present" icon={<PlayIcon />} disabled={!slide} onClick={() => (location.hash = present)} />
+        <ToolbarButton label="Present" icon={<PlayIcon />} disabled={!slide} onClick={() => (onPresent ? onPresent(slide?.index ?? 1) : (location.hash = present))} />
       </Toolbar>
       <input ref={files} type="file" accept="image/png,image/jpeg" hidden onChange={addImage} aria-label="Image file" tabIndex={-1} />
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete} title={`Delete slide ${outline.slides.find((s) => s.id === doomed)?.index ?? ""}?`} description={`"${outline.slides.find((s) => s.id === doomed)?.title || "Untitled"}" and its notes are removed from the deck.`} footer={<><DialogClose asChild><Button variant="secondary">Keep slide</Button></DialogClose><DialogClose asChild><Button variant="danger" onClick={() => void remove()}>Delete slide</Button></DialogClose></>} />
