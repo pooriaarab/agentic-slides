@@ -8,6 +8,10 @@ on:
 env:
   WRANGLER_SEND_METRICS: "false"
 
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
