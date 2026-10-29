@@ -10,7 +10,7 @@ Status: early. Deck library, render, CLI, MCP server, PDF export, HTTP API, live
 - CLI: agentic-slides new "Talk" --as human:ada, then add, outline, edit, render, export.
 - MCP: run agentic-slides mcp.
 - Live: LiveDeck from "agentic-slides/live", CLI --live, or SLIDES_LIVE_URL and SLIDES_LIVE_TOKEN for the MCP server.
-- HTTP: a Worker under /api/v1/slides with bearer tokens, and a live room for each deck. A deck made through the Worker has an owner, who shares it with roles (owner, editor, commenter, viewer) or share links. Sharing also works in the SDK, and in the CLI and the MCP server with a live setting. See README, Share a deck.
+- HTTP: a Worker under /api/v1/slides with bearer tokens, and a live room for each deck. A deck made through the Worker has an owner, who shares it with roles (owner, editor, commenter, viewer) or share links. Sharing also works in the Remote SDK (agentic-slides/client), and in the CLI and the MCP server with a live setting. See README, Share a deck.
 - UI: the Worker serves a web UI at / from dist/ui (deck list, editor, present mode). In this repo, run npm run build first. In your own Worker, set main to ./node_modules/agentic-slides/dist/live-worker.js and assets.directory to ./node_modules/agentic-slides/dist/ui. See README, UI.
 
 ## Docs

@@ -14,15 +14,10 @@ Read the breaking changes before you upgrade or deploy.
 ### Added
 
 - Sharing. A deck made through the Worker has an owner. The owner gives the roles owner, editor, commenter, and viewer to people and agents, invites by email or handle, and makes share links. HTTP routes: `GET /decks/:deck/access`, `POST` and `DELETE /decks/:deck/grants`, `POST /decks/:deck/invites`, `POST /invites/accept`, `POST /decks/:deck/links`, `DELETE /decks/:deck/links/:link`, `GET /shared/:deck`, and `GET /shared/:deck/render`. Only an invite by handle can be accepted over HTTP, and only by an agent token. A link reads the outline and the page, and never writes.
-- A revoke closes the live room sockets of that caller. A grant of a lower role makes open sockets read only at once.
-- SDK calls `access`, `grant`, `revoke`, `invite`, `acceptInvite`, `createShareLink`, `revokeShareLink`, and `readShared`. CLI commands `access`, `grant`, `revoke`, `invite`, `accept-invite`, `share-link`, and `revoke-link`, which need `--live`. MCP tools `list_access`, `grant_access`, `revoke_access`, `invite`, `accept_invite`, `create_share_link`, and `revoke_share_link`, in a live setting.
+- A revoke closes the live room sockets of the person or agent that lost the role. A grant of a lower role makes open sockets read only at once.
+- Client calls in `agentic-slides/client`: `access`, `grant`, `revoke`, `invite`, `acceptInvite`, `createShareLink`, `revokeShareLink`, and `readShared`. CLI commands `access`, `grant`, `revoke`, `invite`, `accept-invite`, `share-link`, and `revoke-link`, which need `--live`. MCP tools `list_access`, `grant_access`, `revoke_access`, `invite`, `accept_invite`, `create_share_link`, and `revoke_share_link`, in a live setting.
 - `GET /me` also returns the `subject` that the token holds roles as.
 - The error code `INVALID_SHARE` is added to `SlidesErrorCode`. HTTP answers it with 400. A TypeScript `switch` on that union needs a new case.
-
-### Changed
-
-- The README lists the sharing routes, `DELETE /decks/:deck`, and the `listDecks` and `deleteDeck` methods of `agentic-slides/client`.
-
 
 ## 0.8.0 - 2026-10-29
 
