@@ -2,6 +2,16 @@
 
 This file lists the notable changes to this project, by version.
 
+## Unreleased
+
+### Breaking changes
+
+- `agentic-identity` is now `^0.4.0`. A grant belongs to a kind and an id. A person and an agent with
+  the same id hold separate roles. A grant that a host made under the old key does not carry over. This
+  includes the owner role, so a deck shared through the old keys has no owner after the upgrade. There
+  is no migration. This package makes no grant itself: its roles come from `SLIDES_TOKENS`, and it has
+  no command that deletes a deck. A host that shares decks must call `deleteResource` when it deletes one.
+
 ## 0.2.0 - 2026-10-29
 
 ### Breaking changes
