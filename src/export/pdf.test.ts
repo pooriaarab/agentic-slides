@@ -89,3 +89,45 @@ describe("images that cannot be drawn", () => {
     expect(warnings.join(" ")).toMatch(/slide 1.*cut/);
   });
 });
+
+// Ways a font face can end up embedded with no glyph drawn, and so crash the save:
+// the only text in a face sits in a line that is cut, a deck with no text at all,
+// a deck whose text uses one face, and text that is only a line break.
+describe("embedded faces", () => {
+  /** The Noto Sans faces a PDF embeds. A face with no drawn glyph must not be among them. */
+  const facesIn = (bytes: Uint8Array) => [...new Set(Buffer.from(bytes).toString("latin1").match(/NotoSans-(?:regular|bold|italic|boldItalic)\b/g)?.map((n) => n.slice(9)))].sort();
+  const withText = (edit: (e: Extract<DeckOutline["slides"][number]["elements"][number], { kind: "text" }>) => void): DeckOutline => {
+    const outline = deckOf(1);
+    const text = outline.slides[0]!.elements.find((e) => e.kind === "text")!;
+    if (text.kind === "text") edit(text);
+    return outline;
+  };
+
+  test("an italic run that sits only in a cut line does not break the export", async () => {
+    const outline = withText((e) => {
+      e.slot = undefined;
+      e.h = e.fontSize * 1.3;
+      e.runs = [{ text: `${"word ".repeat(80)}\n` }, { text: "last", italic: true }];
+    });
+    const { bytes, warnings } = await renderPdf(outline, new Map());
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
+    expect(warnings.join(" ")).toMatch(/slide 1.*cut/);
+    expect(facesIn(bytes)).toEqual(["regular"]);
+  });
+
+  test("a deck with no text still exports", async () => {
+    const outline = deckOf(1);
+    outline.slides[0]!.elements = outline.slides[0]!.elements.filter((e) => e.kind === "shape");
+    const { bytes } = await renderPdf(outline, new Map());
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
+    expect(facesIn(bytes)).toEqual([]);
+  });
+
+  test("a deck that uses one face, and text that is only a line break, export", async () => {
+    const one = await renderPdf(withText((e) => { e.slot = undefined; e.runs = [{ text: "plain", italic: true }]; }), new Map());
+    expect((await PDFDocument.load(one.bytes)).getPageCount()).toBe(1);
+    expect(facesIn(one.bytes)).toEqual(["italic"]);
+    const empty = await renderPdf(withText((e) => { e.runs = [{ text: "\n" }]; }), new Map());
+    expect((await PDFDocument.load(empty.bytes)).getPageCount()).toBe(1);
+  });
+});

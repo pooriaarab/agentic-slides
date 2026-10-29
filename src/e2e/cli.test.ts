@@ -139,12 +139,25 @@ describe("slides CLI", () => {
   });
 
   test("characters the PDF font cannot draw are reported, not hidden", () => {
-    run(["new", "Polish", "--id", "polish", "--as", AGENT]);
-    run(["add", "polish", "--outline", "-", "--as", AGENT], { input: "# Łódź\n- zażółć" });
-    const exported = json(run(["export", "polish", "--out", join(work, "polish.pdf")]).out);
+    run(["new", "Han", "--id", "han", "--as", AGENT]);
+    run(["add", "han", "--outline", "-", "--as", AGENT], { input: "# 日本語\n- 漢字" });
+    const exported = json(run(["export", "han", "--out", join(work, "han.pdf")]).out);
     expect(exported.warnings).toHaveLength(1);
     expect(exported.warnings[0]).toContain("slide 1");
-    expect(exported.warnings[0]).toContain("Ł");
+    expect(exported.warnings[0]).toContain("日");
+  });
+
+  test("Polish, Greek, and Cyrillic text is embedded with no warning", () => {
+    const text = "Łódź zażółć gęślą jaźń\nΕλληνικά κείμενο\nПривет, мир";
+    run(["new", "Scripts", "--id", "scripts", "--as", AGENT]);
+    run(["add", "scripts", "--outline", "-", "--as", AGENT], { input: `# ${text.split("\n")[0]}\n${text.split("\n").slice(1).map((l) => `- ${l}`).join("\n")}` });
+    const pdf = join(work, "scripts.pdf");
+    const exported = json(run(["export", "scripts", "--out", pdf]).out);
+    expect(exported.warnings).toEqual([]);
+    expect(readFileSync(pdf).length).toBeLessThan(120_000);
+    const again = join(work, "scripts2.pdf");
+    run(["export", "scripts", "--out", again]);
+    expect(readFileSync(again).equals(readFileSync(pdf))).toBe(true);
   });
 
   test("SLIDES_DIR and SLIDES_AUTHOR set the defaults", () => {
