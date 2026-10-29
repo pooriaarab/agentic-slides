@@ -8,12 +8,12 @@ Read the breaking changes before you upgrade or deploy.
 
 ### Breaking changes
 
-- **Live names are checked.** `agentic-realtime` 0.4.0, which this release uses, accepts a peer name only if `isSafePeerName` accepts it after NFC normalization. The name has 1 to 40 characters. It starts with a letter or a digit. The other characters are letters, digits, spaces, or `. _ ' ’ ( ) -`. It has no space at either end, no two spaces in a row, no invisible character, and no run of four or more combining marks. The check runs in three places:
+- **Live names are checked.** `agentic-realtime` 0.4.0, which this release uses, accepts a peer name only if `isSafePeerName` accepts it. The client normalizes the name to NFC first. The Worker does not, so store the author names of your tokens in NFC form. The name has 1 to 40 characters. It starts with a letter or a digit. The other characters are letters, digits, spaces, or `. _ ' ’ ( ) -`. It has no space at either end, no two spaces in a row, no invisible character, and no run of four or more combining marks. The check runs in three places:
   - The `name` option of the live client, and `SLIDES_LIVE_NAME` for the CLI and the MCP server. A join with an unsafe name fails with `LIVE_UNAVAILABLE`. An empty `SLIDES_LIVE_NAME` also fails.
-  - The author name of each token in `SLIDES_TOKENS`. The web UI uses it for live presence. A deck page of a token with an unsafe name can show a blank page, with no error message. An email address fails, because it has `@`.
+  - The author name of each token in `SLIDES_TOKENS`. The CLI and the MCP server use it when `SLIDES_LIVE_NAME` is not set. The web UI uses it for live presence. A deck page of a token with an unsafe name can show a blank page, with no error message. An email address fails, because it has `@`.
   - The Worker relays the author name of the token, not `SLIDES_LIVE_NAME`, when that name is safe. An unsafe author name shows to peers as `Unknown`.
 
-  Before you upgrade, check each token author name and each live name with `isSafePeerName`, from `agentic-realtime`, on the NFC form of the name.
+  Before you upgrade, check each token author name and each live name with `isSafePeerName`, from `agentic-realtime`.
 
 ### Added
 
