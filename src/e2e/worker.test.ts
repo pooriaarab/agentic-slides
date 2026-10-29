@@ -32,7 +32,7 @@ async function call(method: string, path: string, options: { token?: string; bod
 }
 const json = async (response: Response) => (await response.json()) as Record<string, any>;
 
-// Workers that share `persist` share one local D1 database and R2 bucket, as two instances share the real ones.
+// The persist directory holds the local D1 database and R2 bucket. A restart on the same directory sees the same data.
 async function start(attempts = 3): Promise<string> {
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
@@ -145,23 +145,18 @@ describe("slides Worker API", () => {
     expect((await call("GET", "/decks/missing", { token: HUMAN })).status).toBe(404);
   });
 
-  test("decks and images live in D1 and R2: a second Worker and a restart see them", async () => {
+  test("decks and images live in D1 and R2: concurrent edits add up, and a restart sees them", async () => {
     await call("POST", "/decks", { token: AGENT, body: { title: "Shared", id: "shared" } });
     const added = await call("POST", "/decks/shared/slides", { token: AGENT, body: { outline: "# Pic\n![A cat](cat.png)", images: { "cat.png": PNG } } });
     expect(added.status).toBe(201);
-    const other = await start();
-    const seen = await fetch(`${other}/api/v1/slides/decks/shared`, { headers: { authorization: `Bearer ${HUMAN}` } });
-    expect(seen.status).toBe(200);
-    expect((await json(seen)).slides[0]).toMatchObject({ createdBy: { kind: "agent_of_human", name: "bot" }, machineMade: true });
-    // Both Workers hold the same deck, so edits from each one add up.
-    const edit = (url: string, n: number) =>
-      fetch(`${url}/api/v1/slides/decks/shared/slides`, { method: "POST", headers: { authorization: `Bearer ${AGENT}`, "content-type": "application/json" }, body: JSON.stringify({ outline: `# S${n}` }) });
-    const both = await Promise.all([0, 1, 2, 3].map((n) => edit(n % 2 ? base : other, n)));
+    // One Worker serves the whole test. Two workerd processes on one local D1 file can fail with a SQLite lock error that real D1 does not raise.
+    const both = await Promise.all([0, 1, 2, 3].map((n) => call("POST", "/decks/shared/slides", { token: AGENT, body: { outline: `# S${n}` } })));
     expect(both.map((r) => r.status)).toEqual([201, 201, 201, 201]);
     for (const worker of workers.splice(0)) await stop(worker);
     base = await start();
     const outline = await json(await call("GET", "/decks/shared", { token: HUMAN }));
     expect(outline.slides).toHaveLength(5);
+    expect(outline.slides[0]).toMatchObject({ createdBy: { kind: "agent_of_human", name: "bot" }, machineMade: true });
     const html = await (await call("GET", "/decks/shared/render", { token: HUMAN })).text();
     expect(html).toContain("data:image/png;base64,");
   }, 180_000);
