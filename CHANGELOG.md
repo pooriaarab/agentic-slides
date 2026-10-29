@@ -2,6 +2,23 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.8.0 - 2026-10-29
+
+This release has no breaking change. Its HTTP routes, SDK calls, and CLI and MCP commands that existed before still work the same way.
+
+### Added
+
+- `list_decks` MCP tool and `list` CLI command. Each returns one page of decks, newest edit first, with the last editor of each. Both take `limit` (1 to 200) and `cursor`. The live service has `list` too. It checks the id, title, save time, and machine-made flag of each item, and it refuses a list with an item that fails the check.
+- `delete_deck` MCP tool, `delete-deck` CLI command, `DELETE /api/v1/decks/:deck` route, and `deleteDeck` in `agentic-slides/client` and the live service. The delete removes the deck and its list entry in one transaction. Images stay in the store, because other decks can use them.
+- The HTTP route clears the live room of a deck before it deletes the deck, so a new deck with the same id does not read the old state. A host that calls the service directly must clear the room itself. A host that shares decks must also remove the sharing grants.
+- `agentic-slides/formats` maps a deck to and from ODP and PPTX: `deckToOdp`, `deckToPptx`, `outlineFromOdp`, and `outlineFromPptx`. It also exports `toFormatsDeck`, `outlineFromFormatsDeck`, and the types `ImageBytes`, `ExportedFile`, and `ImportedDeck`. Each result lists in `warnings` what the other side cannot hold. The README "Limits" section lists what does not survive an import.
+
+### Changed
+
+- The colors of the web UI come from `agentic-design` tokens. The slide canvas sets `data-theme="light"`, so the selection and agent marks keep a light look on a deck of any theme. The present page uses the dark tokens.
+- The package depends on `agentic-formats` 0.3.0.
+- The README no longer says that ODP and PPTX export are not ready. The CLI, the MCP server, and the HTTP API do not use the formats subpath yet.
+
 ## 0.7.0 - 2026-10-29
 
 Read the breaking changes before you upgrade or deploy.
