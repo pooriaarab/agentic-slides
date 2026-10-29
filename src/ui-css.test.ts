@@ -9,13 +9,15 @@ describe("ui/app.css", () => {
 });
 
 describe("the CSS in the render modules", () => {
-  // A hex color may stay only as the fallback of a var() token, as in the forms page.
+  // The render modules hold no hex color, no old --agd-color-present-* name, and no `ad-` name.
+  // Every value comes from the agentic-design tokens that tokenCss() inlines.
   for (const file of ["present.ts", "html.ts"]) {
-    test(`${file} holds no bare hex color: each one is a var() fallback`, () => {
+    test(`${file} holds no hex color and no made-up token`, () => {
       const source = readFileSync(new URL(`./render/${file}`, import.meta.url), "utf8");
-      const bare = source.replace(/var\(--[a-z0-9-]+,\s*#[0-9a-fA-F]{3,8}\)/g, "");
       // Character references such as &#8249; and element ids such as #notes are not colors: a color has 3, 4, 6, or 8 hex digits after a declaration colon or a space.
-      expect(bare.match(/[:\s,(]#[0-9a-fA-F]{3,8}\b(?![\w-])/g) ?? []).toEqual([]);
+      expect(source.match(/[:\s,(]#[0-9a-fA-F]{3,8}\b(?![\w-])/g) ?? []).toEqual([]);
+      expect(source).not.toMatch(/--agd-color-present/);
+      expect(source).not.toMatch(/(?<![a-z])--?ad-|\bad-/);
     });
   }
 });

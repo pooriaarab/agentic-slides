@@ -2,6 +2,13 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.11.0 - 2026-10-29
+
+### Changed
+
+- The deck page and the present page take their colors, spacing, radius, and type size from `agentic-design` tokens. Each page inlines the `--agd-*` values it uses, in light and in dark, so the exported file is self-contained and loads nothing from the network. The slide keeps the deck theme. The look is the calm look of `agentic-design` 0.5, and the present page follows the system theme.
+- `agentic-design` is now 0.5.x. The token names do not change.
+
 ## 0.10.0 - 2026-10-29
 
 ### Breaking changes
