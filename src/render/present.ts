@@ -1,5 +1,6 @@
 import type { DeckOutline } from "../core/deck.js";
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from "../core/layouts.js";
+import { tokenCss } from "./tokens.js";
 import { cspFor, esc, renderPage, renderSlide, themeCss, type RenderOptions } from "./html.js";
 
 // Keys: arrows, PageUp/PageDown, Space, Backspace move. Home and End jump.
@@ -19,19 +20,20 @@ var start=parseInt(location.hash.slice(1),10);show(isNaN(start)?0:start-1);fit()
 export const PRESENT_CSP = cspFor(SCRIPT);
 
 const CHROME_CSS = `
-body{margin:0;background:var(--agd-color-present-bg,#111);color:var(--agd-color-present-text,#fff);font:16px system-ui,sans-serif}
+body{margin:0;background:var(--agd-color-surface-sunken);color:var(--agd-color-text);font:var(--agd-font-size-md) var(--agd-font-family-sans)}
 #stage{position:fixed;inset:0 0 56px 0;overflow:hidden}
-#deck{position:absolute;left:50%;top:50%;width:${SLIDE_WIDTH}px;height:${SLIDE_HEIGHT}px;transform-origin:center}
+#deck{position:absolute;left:50%;top:50%;width:${SLIDE_WIDTH}px;height:${SLIDE_HEIGHT}px;transform-origin:center;border-radius:var(--agd-radius-md);overflow:hidden}
 .slide[hidden]{display:none}
-#notes{position:fixed;left:0;right:0;bottom:56px;height:max(120px,24vh);overflow:auto;box-sizing:border-box;padding:12px 24px;background:var(--agd-color-present-surface,#1f2328);border-top:1px solid var(--agd-color-present-border,#6e7681)}
+#notes{position:fixed;left:0;right:0;bottom:56px;height:max(120px,24vh);overflow:auto;box-sizing:border-box;padding:var(--agd-space-3) var(--agd-space-6);background:var(--agd-color-surface);border-top:1px solid var(--agd-color-border)}
 #notes[hidden]{display:none}
-#notes h2{margin:0 0 8px;font-size:16px}#notes-text{white-space:pre-wrap;font-size:20px}
+#notes h2{margin:0 0 var(--agd-space-2);font-size:var(--agd-font-size-md)}#notes-text{white-space:pre-wrap;font-size:var(--agd-font-size-xl)}
 body.with-notes #stage{bottom:calc(56px + max(120px,24vh))}
-.controls{position:fixed;left:0;right:0;bottom:0;height:56px;display:flex;align-items:center;justify-content:center;gap:16px;background:var(--agd-color-present-controls,#000)}
-.controls button{min-width:44px;min-height:44px;font:inherit;color:var(--agd-color-present-text,#fff);background:var(--agd-color-present-button,#30363d);border:1px solid var(--agd-color-present-border-strong,#8b949e);border-radius:6px;cursor:pointer}
-.controls button[aria-pressed="true"]{background:var(--agd-color-accent,#0b5cad)}
-button:focus-visible{outline:3px solid var(--agd-color-present-focus,#ffbf47);outline-offset:2px}
-#origin{color:var(--agd-color-present-origin,#ffd479)}`;
+.controls{position:fixed;left:0;right:0;bottom:0;height:56px;display:flex;align-items:center;justify-content:center;gap:var(--agd-space-4);background:var(--agd-color-surface);border-top:1px solid var(--agd-color-border);font-size:var(--agd-font-size-sm)}
+.controls button{min-width:var(--agd-size-control-touch);min-height:var(--agd-size-control-touch);font:inherit;color:var(--agd-color-text);background:var(--agd-color-surface);border:1px solid var(--agd-color-border);border-radius:var(--agd-radius-md);cursor:pointer}
+.controls button:hover{background:var(--agd-color-surface-sunken)}
+.controls button[aria-pressed="true"]{background:var(--agd-color-accent);color:var(--agd-color-text-on-accent);border-color:var(--agd-color-accent)}
+button:focus-visible{outline:2px solid var(--agd-color-focus);outline-offset:2px}
+#origin{color:var(--agd-color-agent-text)}`;
 
 /** A page that presents the deck: one slide at a time, keyboard navigation, and a speaker-notes view. */
 export function renderPresent(outline: DeckOutline, options: RenderOptions = {}): string {
@@ -45,5 +47,5 @@ export function renderPresent(outline: DeckOutline, options: RenderOptions = {})
 <nav class="controls" aria-label="Presentation controls"><button id="prev" type="button" aria-label="Previous slide">&#8249;</button><span id="status" role="status" aria-live="polite"></span><button id="next" type="button" aria-label="Next slide">&#8250;</button><button id="toggle-notes" type="button" aria-pressed="false" aria-keyshortcuts="n">Notes</button><span id="origin" role="status"></span></nav>
 <script>${SCRIPT}</script>
 </body>`;
-  return renderPage(outline, `${themeCss(outline.theme)}${CHROME_CSS}`, body, options, PRESENT_CSP);
+  return renderPage(outline, `${tokenCss()}\n${themeCss(outline.theme)}${CHROME_CSS}`, body, options, PRESENT_CSP);
 }

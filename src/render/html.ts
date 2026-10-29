@@ -1,6 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import type { DeckOutline, SlideOutline } from "../core/deck.js";
 import { COLOR_TOKENS, SLIDE_HEIGHT, SLIDE_WIDTH, checkTheme, type ColorToken, type Theme } from "../core/layouts.js";
+import { tokenCss } from "./tokens.js";
 import { isBlobRef, type Element, type Run } from "../core/model.js";
 
 export interface RenderOptions {
@@ -123,9 +124,10 @@ export function renderPage(outline: DeckOutline, css: string, body: string, opti
 /** The whole deck as one page, slides stacked. A browser prints it one slide per page. */
 export function renderDeck(outline: DeckOutline, options: RenderOptions = {}): string {
   const total = outline.slides.length;
-  const css = `${themeCss(outline.theme)}
-body{margin:0;background:var(--agd-color-surface-sunken,#e6e8eb)}main{display:flex;flex-direction:column;align-items:center;gap:24px;padding:24px}
-@media print{@page{size:${SLIDE_WIDTH}px ${SLIDE_HEIGHT}px;margin:0}body{background:none}main{display:block;padding:0}.slide{break-after:page}}`;
+  const css = `${tokenCss()}
+${themeCss(outline.theme)}
+body{margin:0;background:var(--agd-color-surface-sunken)}main{display:flex;flex-direction:column;align-items:center;gap:var(--agd-space-6);padding:var(--agd-space-6)}.slide{border-radius:var(--agd-radius-md);box-shadow:0 0 0 1px var(--agd-color-border)}
+@media print{@page{size:${SLIDE_WIDTH}px ${SLIDE_HEIGHT}px;margin:0}body{background:none}main{display:block;padding:0}.slide{break-after:page;border-radius:0;box-shadow:none}}`;
   const slides = outline.slides.map((s) => renderSlide(s, outline.theme, options, total)).join("\n");
   const body = `<body><h1 class="sr-only">${esc(outline.title)}</h1><main aria-label="Slides">${slides}</main></body>`;
   return renderPage(outline, css, body, options);

@@ -6,6 +6,8 @@ import { DEFAULT_THEME } from "../core/layouts.js";
 import { SlidesError, type Principal } from "../core/principal.js";
 import { renderDeck, renderSlide } from "./html.js";
 import { renderPresent } from "./present.js";
+import { scale, themes } from "agentic-design/tokens";
+import { tokenCss } from "./tokens.js";
 
 // Ways a render can fail, written before the code: injected markup, a theme
 // from an untrusted update, a remote asset, a network fetch, and drift between runs.
@@ -218,5 +220,40 @@ describe("present page safety", () => {
     const html = renderDeck(sample().outline());
     expect(html).toMatch(/@page\{size:1280px 720px;margin:0\}/);
     expect(html).toContain("break-after:page");
+  });
+});
+
+describe("design tokens in the output", () => {
+  const pages = () => [renderDeck(sample().outline()), renderPresent(sample().outline())];
+
+  test("both pages inline the agentic-design values, light and dark", () => {
+    for (const html of pages()) {
+      expect(html).toContain(`--agd-color-bg:${themes.light.bg}`);
+      expect(html).toContain(`--agd-color-bg:${themes.dark.bg}`);
+      expect(html).toContain("prefers-color-scheme:dark");
+      expect(html).toContain(`--agd-space-6:${scale.space[6]}`);
+      expect(html).toContain(`--agd-font-family-sans:${scale["font-family"].sans}`);
+    }
+  });
+
+  test("every --agd var() the pages read is defined in the page", () => {
+    for (const html of pages()) {
+      const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
+      const used = new Set([...css.matchAll(/var\((--agd-[a-z0-9-]+)/g)].map((m) => m[1]));
+      expect(used.size).toBeGreaterThan(3);
+      for (const name of used) expect(css, name).toContain(`${name}:`);
+    }
+  });
+
+  test("the pages load nothing remote and use no ad- name", () => {
+    for (const html of pages()) {
+      expect(html).not.toMatch(/https?:\/\//);
+      expect(html).not.toMatch(/(class="|\.|--)ad-/);
+    }
+  });
+
+  test("the slide keeps the deck theme, not the page tokens", () => {
+    const css = tokenCss() + renderDeck(sample().outline());
+    expect(css).toContain(`--c-background:${DEFAULT_THEME.colors.background}`);
   });
 });
