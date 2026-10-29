@@ -33,10 +33,10 @@ async function serve(): Promise<void> {
 const argv = process.argv.slice(2);
 const args = argv[0] === "mcp" ? argv.slice(1) : argv;
 const has = (...names: string[]) => args.some((a) => names.includes(a));
-if (has("--version", "-V")) {
-  process.stdout.write(`${VERSION}\n`);
-} else if (has("--help", "-h")) {
+if (has("--help", "-h")) {
   process.stdout.write(HELP);
+} else if (has("--version", "-V")) {
+  process.stdout.write(`${VERSION}\n`);
 } else {
   serve().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
