@@ -6,7 +6,7 @@ This file lists the notable changes to this project, by version.
 
 ### Breaking changes
 
-The HTTP API, the SDK, the CLI, and the MCP server do not change.
+No change to the HTTP API, the SDK, the CLI, or the MCP server breaks a current caller.
 
 - Run `npm run build` before `wrangler deploy` or `wrangler dev`. Without `dist/ui`, Wrangler stops with an error
   that names `assets.directory`. See "Changed".
@@ -22,6 +22,7 @@ The HTTP API, the SDK, the CLI, and the MCP server do not change.
 
 ### Changed
 
+- `GET /` answers with the UI page. Before, it answered with the JSON `NOT_FOUND` error. A monitor that expects a 404 at `/` now gets the page.
 - `wrangler.jsonc` serves the UI from `./dist/ui` as static assets. Run `npm run build` before `wrangler deploy`,
   so that `dist/ui` exists to serve.
 - `npm run build` also bundles the UI. `prepack` runs it, so the npm package has `dist/ui`.
