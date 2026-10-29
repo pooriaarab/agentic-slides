@@ -3,7 +3,7 @@ import { SyncClient, type ConnectOptions, type Peer } from "agentic-realtime/cli
 import { Deck, type DeckOutline, type ElementPatch } from "./core/deck.js";
 import { PRINCIPAL_KINDS, SlidesError, fail, type Principal, type SlidesErrorCode } from "./core/principal.js";
 import { fromBase64 } from "./bytes.js";
-import { MAX_LIVE_BYTES, slideRef, type Operations } from "./service.js";
+import { MAX_LIVE_BYTES, slideRef, type DeckSummary, type Operations } from "./service.js";
 
 export interface LiveOptions {
   /** The Worker address, such as `https://slides.example.com`. */
@@ -251,6 +251,14 @@ export function createLiveService(options: LiveOptions): Operations {
       if (!response.ok) throw await refusal(response, "the server refused the request");
       const made = (await response.json().catch(() => undefined)) as { id?: unknown } | undefined;
       return typeof made?.id === "string" ? { id: made.id } : fail("LIVE_UNAVAILABLE", "the server did not say the id of the new deck");
+    },
+    async list(page = {}) {
+      const query = new URLSearchParams(Object.entries(page).flatMap(([key, value]) => (value === undefined ? [] : [[key, String(value)]])));
+      const response = await ask(options.server, options.token, `/decks${query.size ? `?${query}` : ""}`);
+      if (!response.ok) throw await refusal(response, "the server refused the request");
+      const sent = (await response.json().catch(() => undefined)) as { decks?: unknown; nextCursor?: unknown } | undefined;
+      if (!Array.isArray(sent?.decks)) return fail("LIVE_UNAVAILABLE", "the server sent a list that this client does not know");
+      return { decks: sent.decks as DeckSummary[], nextCursor: typeof sent.nextCursor === "string" ? sent.nextCursor : undefined };
     },
     outline: (id): Promise<DeckOutline> => read(id, (deck) => deck.outline()),
     async addSlides(id, input) {

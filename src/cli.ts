@@ -29,6 +29,8 @@ const OPTIONS = {
   patch: { type: "string" },
   out: { type: "string" },
   format: { type: "string" },
+  limit: { type: "string" },
+  cursor: { type: "string" },
   present: { type: "boolean" },
 } as const;
 
@@ -39,6 +41,7 @@ Usage: ${COMMAND} <command> [flags]
 
 Commands:
   new <title> [--id <id>]                         Create a deck. Prints its id.
+  list [--limit <n>] [--cursor <text>]            Print one page of decks as JSON, newest edit first.
   outline <deck>                                  Print the deck as JSON.
   add <deck> (--outline <file|-> | --layout <name>) [--at <n>]
                                                   Add slides from an outline, or one empty slide.
@@ -131,6 +134,9 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
     switch (command) {
       case "new":
         print(await service.create({ title: need(positionals.join(" ") || undefined, "title"), id: values.id, author: author() }));
+        break;
+      case "list":
+        print(await service.list({ limit: number(values.limit, "limit"), cursor: values.cursor }));
         break;
       case "outline":
         print(await service.outline(need(deck, "deck")));

@@ -284,4 +284,4 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
 export type Service = ReturnType<typeof createService>;
 
 /** What the CLI and the MCP server call. The live client has the same shape, so either can stand behind them. */
-export type Operations = Omit<Service, "state" | "checkpoint" | "exists" | "list">;
+export type Operations = Omit<Service, "state" | "checkpoint" | "exists">;
