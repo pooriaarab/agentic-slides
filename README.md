@@ -135,6 +135,7 @@ curl -s -X POST localhost:8787/api/v1/slides/decks \
 | `GET /decks?limit=&cursor=` | One page of decks, newest edit first, with the last editor of each. `nextCursor` names the next page. |
 | `POST /decks` | Create a deck. |
 | `GET /decks/:deck` | Read the outline. |
+| `DELETE /decks/:deck` | Delete the deck, its list entry, and its sharing. On a deck with an owner, only an owner can delete it. On a deck with no owner, an editor token can delete it. |
 | `POST /decks/:deck/slides` | Add slides from `outline` or one `layout`. |
 | `PUT /decks/:deck/slides/:slide` | Replace one slide from an outline. |
 | `PATCH /decks/:deck/slides/:slide/elements/:element` | Change one element. |
@@ -154,6 +155,7 @@ The default role is `editor`.
 
 The person or agent that makes a deck through the Worker owns it. An owner gives roles to others.
 A role is `owner`, `editor`, `commenter`, or `viewer`.
+Sharing needs a server. The HTTP API, `agentic-slides/client`, the CLI, and the MCP server all have sharing calls. The CLI and the MCP server use them in a live setting (see the CLI and MCP sections).
 
 | Role | May |
 | --- | --- |
@@ -165,7 +167,7 @@ A role is `owner`, `editor`, `commenter`, or `viewer`.
 A caller with no role on a deck gets the answer for a missing deck (404), and does not see it in `GET /decks`.
 A caller with a role that is too low gets 403. The role works with the token role: a `;viewer` token only reads, even for an owner.
 
-A token name must have 1 to 128 of `A-Z a-z 0-9 _ -`, or the Worker refuses the token setting (500 `MISCONFIGURED`): a name with another character could hold no role.
+A token name must use only `A-Z a-z 0-9 _ -`. The subject of the token (see below) must have 1 to 128 characters. For a delegated kind, the kind and the underscore count. Otherwise the Worker refuses the token setting (500 `MISCONFIGURED`), because a name like that could hold no role.
 A token holds roles as a subject. `GET /me` shows it. A `human` token is the subject `human:<name>`. An `agent` token is `agent:<name>`.
 A token of another kind (for example `agent_of_human`) is the subject `agent:<kind>_<name>`. The Worker refuses an `agent` token with a name that starts with a delegated kind and an underscore (for example `agent_of_human_eve`), because it would share the subject of a delegated token.
 
@@ -297,7 +299,7 @@ await slides.revokeShareLink("talk", linkId);
 await slides.revoke("talk", { kind: "human", id: "bob" });
 ```
 
-There is one method for each route: `health`, `me`, `createDeck`, `outline`, `addSlides`, `setSlide`,
+The client has these methods: `health`, `me`, `listDecks`, `createDeck`, `deleteDeck`, `outline`, `addSlides`, `setSlide`,
 `editElement`, `moveSlide`, `deleteSlide`, `render`, `exportPdf`, `state`, and `checkpoint`. For sharing, it has
 `access`, `grant`, `revoke`, `invite`, `acceptInvite`, `createShareLink`, `revokeShareLink`, and `readShared`. `readShared` also sends the token of the client, and the server needs it to be valid. A visitor with only a link token reads with `GET /shared/:deck` and the header. Each method
 takes `{ signal }` as its last argument. Pass `fetch` to `createClient` to replace the global one.
@@ -410,8 +412,8 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
   The font ships in the package and is embedded as a subset, so a PDF stays small and the
   bytes are the same on every run. Han, Arabic, Indic, and other scripts become `?` and are
   listed in `warnings`. The PDF has no tags yet.
-- The Worker keeps decks in D1 and images in R2. Create both in the EU (see `wrangler.jsonc`). It declares the `eu` region and refuses a D1 query that D1 does not report as served in the EU. `SLIDES_REGION:unknown` turns that check off, for local runs only. Any valid token can read every deck, and an editor token can change every deck: there is no owner and no per-deck role yet, so do not use it for more than one tenant.
-- A token has 32 to 512 characters, from A-Z a-z 0-9 _ -. A principal name starts with a letter, a digit, `_`, or `-`, then uses only A-Z a-z 0-9 . _ -, and has 1 to 128 characters. A request holds at most 20 images, 10 MB each, and 32 MB in all.
+- The Worker keeps decks in D1 and images in R2. Create both in the EU (see `wrangler.jsonc`). It declares the `eu` region and refuses a D1 query that D1 does not report as served in the EU. `SLIDES_REGION:unknown` turns that check off, for local runs only. A deck made through the Worker has an owner, and only its roles decide who reads or changes it. A deck made before 0.9.0 has no owner. Any valid token can read it, and an editor token can change it. Its share routes answer 403.
+- A token has 32 to 512 characters, from A-Z a-z 0-9 _ -. A principal name starts with a letter, a digit, `_`, or `-`, then uses only A-Z a-z 0-9 . _ -, and has 1 to 128 characters. The Worker is stricter for token names: see Share a deck. A request holds at most 20 images, 10 MB each, and 32 MB in all.
 - A change reaches the room before the server checks the size, so an edit that makes a deck too large for a room stays in the room and makes every save fail until someone removes it.
 - A live room and the HTTP API are two copies of a deck. A CLI or MCP call in a live room saves after each change, so the HTTP API sees it at once. An HTTP edit reaches a room on the next join, not at once. Save a room with a checkpoint.
 - A checkpoint holds at most 1.5 MiB. A deck over that cannot go in a room.

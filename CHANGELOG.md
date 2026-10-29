@@ -2,18 +2,27 @@
 
 This file lists the notable changes to this project, by version.
 
-## Unreleased
+## 0.9.0 - 2026-10-29
+
+Read the breaking changes before you upgrade or deploy.
+
+### Breaking changes
+
+- The Worker refuses a token name that holds no role. A token name in `SLIDES_TOKENS` must use only A-Z a-z 0-9 _ -. An `agent` token name cannot start with a delegated kind and an underscore. The subject of the token (see below) must have 1 to 128 characters. For a delegated kind, the kind and the underscore count. A setting with another name, such as `human:ada.lovelace`, makes every `/api/v1/slides` call that needs a bearer token answer 500 `MISCONFIGURED`. `/health` still answers, and the shared link routes still answer a request with no bearer token. Rename the token before you deploy. Local decks and the library still accept the wider principal names.
+- The Worker checks roles on each deck. A deck made through the Worker has an owner. Only its roles decide who reads or changes it, so an editor token no longer changes every deck. A caller with no role gets 404 for that deck, and a role that is too low gets 403. A deck made before this release has no owner and keeps the token check. `GET /decks` lists only the decks that the caller holds a role on, and the decks with no owner. A client that lists every deck sees fewer decks. A page can hold fewer decks than `limit`, or none, and still have a `nextCursor`. A client must page until `nextCursor` is absent.
 
 ### Added
 
-- Sharing. A deck made through the Worker has an owner. The owner gives the roles owner, editor, commenter, and viewer to people and agents, invites by email or handle, and makes share links. HTTP routes: `GET /decks/:deck/access`, `POST` and `DELETE /decks/:deck/grants`, `POST /decks/:deck/invites`, `POST /invites/accept`, `POST /decks/:deck/links`, `DELETE /decks/:deck/links/:link`, `GET /shared/:deck`, and `GET /shared/:deck/render`.
+- Sharing. A deck made through the Worker has an owner. The owner gives the roles owner, editor, commenter, and viewer to people and agents, invites by email or handle, and makes share links. HTTP routes: `GET /decks/:deck/access`, `POST` and `DELETE /decks/:deck/grants`, `POST /decks/:deck/invites`, `POST /invites/accept`, `POST /decks/:deck/links`, `DELETE /decks/:deck/links/:link`, `GET /shared/:deck`, and `GET /shared/:deck/render`. Only an invite by handle can be accepted over HTTP, and only by an agent token. A link reads the outline and the page, and never writes.
+- A revoke closes the live room sockets of that caller. A grant of a lower role makes open sockets read only at once.
 - SDK calls `access`, `grant`, `revoke`, `invite`, `acceptInvite`, `createShareLink`, `revokeShareLink`, and `readShared`. CLI commands `access`, `grant`, `revoke`, `invite`, `accept-invite`, `share-link`, and `revoke-link`, which need `--live`. MCP tools `list_access`, `grant_access`, `revoke_access`, `invite`, `accept_invite`, `create_share_link`, and `revoke_share_link`, in a live setting.
 - `GET /me` also returns the `subject` that the token holds roles as.
+- The error code `INVALID_SHARE` is added to `SlidesErrorCode`. HTTP answers it with 400. A TypeScript `switch` on that union needs a new case.
 
 ### Changed
 
-- The deck routes check the role of the caller. A caller with no role gets 404, and a role that is too low gets 403. `GET /decks` lists only the decks that the caller holds a role on. A deck made before sharing has no owner: it keeps the token check, and it cannot be shared.
-- The Worker refuses a token name that has a character outside `A-Z a-z 0-9 _ -`, because such a name could hold no role.
+- The README lists the sharing routes, `DELETE /decks/:deck`, and the `listDecks` and `deleteDeck` methods of `agentic-slides/client`.
+
 
 ## 0.8.0 - 2026-10-29
 
