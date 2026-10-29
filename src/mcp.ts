@@ -6,12 +6,13 @@ import { z } from "zod";
 import { COMMAND } from "./brand.js";
 import { SlidesError, checkAuthor, fail, type Principal } from "./core/principal.js";
 import { decodeImages, images, patch } from "./schemas.js";
-import { createService, type Service } from "./service.js";
+import { createLiveService, whoAmI, type LiveOptions } from "./live.js";
+import { createService, type Operations } from "./service.js";
 import { createFileBlobs, createFileStore } from "./store/file.js";
 import { VERSION } from "./version.js";
 
 export interface McpDeps {
-  service: Service;
+  service: Operations;
   /** The author of every edit. The server sets it, so a model cannot claim to be a human. */
   author?: Principal;
 }
@@ -79,8 +80,18 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
   return server;
 }
 
-export async function startMcp(options: { dir?: string; author?: Principal } = {}): Promise<void> {
+export async function startMcp(options: { dir?: string; author?: Principal; live?: LiveOptions } = {}): Promise<void> {
+  if (options.live) return startLiveMcp(options.live);
   const dir = options.dir ?? process.env.SLIDES_DIR ?? ".slides";
   const service = createService({ store: createFileStore(dir), blobs: createFileBlobs(join(dir, "blobs")) });
   await createMcpServer({ service, author: options.author }).connect(new StdioServerTransport());
+}
+
+/**
+ * The MCP server in a live room. The token decides the author, so the server asks who it is and refuses a person's token:
+ * an MCP server acts for a model.
+ */
+export async function startLiveMcp(live: LiveOptions): Promise<void> {
+  const { author } = await whoAmI(live.server, live.token);
+  await createMcpServer({ service: createLiveService(live), author }).connect(new StdioServerTransport());
 }

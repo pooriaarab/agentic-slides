@@ -2,6 +2,21 @@
 
 This file lists the notable changes to this project, by version.
 
+## Unreleased
+
+### Added
+
+- Live rooms. The Worker hosts one room for each deck (a Durable Object from `agentic-realtime`), so a person
+  and an agent edit one deck at once. Routes: `GET /decks/:deck/ws`, `GET /me`, `GET /decks/:deck/state`, and
+  `POST /decks/:deck/checkpoint`. A checkpoint checks author labels, elements, and size before it saves.
+- Token roles: `token=kind:name;viewer`. A viewer reads and cannot write.
+- A live client (`agentic-slides/live`), and `--live` for the CLI and `SLIDES_LIVE_URL` for the CLI and the MCP
+  server. Both join a room with a token. The token sets the author.
+
+### Changed
+
+- `agentic-identity` is ^0.3.0. The package depends on `agentic-realtime`.
+
 ## 0.1.0 - 2026-10-29
 
 First release.
