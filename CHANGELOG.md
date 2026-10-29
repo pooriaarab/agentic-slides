@@ -2,7 +2,7 @@
 
 This file lists the notable changes to this project, by version.
 
-## Unreleased
+## 0.10.0 - 2026-10-29
 
 ### Breaking changes
 
@@ -12,6 +12,7 @@ This file lists the notable changes to this project, by version.
 ### Fixed
 
 - zod moves to 4.6.7 to fix GHSA-mrhx-c7xc-m3w5, a high advisory (memory exhaustion when validating oversized constrained collections). The direct dependency moves from `^3.25.0` to `^4.6.7`. An npm `overrides` entry moves `agentic-design` and `agentic-formats` to zod 4.6.7 in this repo's install and build. npm ignores `overrides` in a published package, so an install of this package still gets zod 3 under those two packages until they accept zod 4. The `@modelcontextprotocol/sdk` floor moves from `^1.12.0` to `^1.23.0`, because earlier SDK releases depend on zod 3.
+- `agentic-slides mcp --help` and `--version` answer and exit 0. They used to fail with exit 2.
 
 ## 0.9.0 - 2026-10-29
 
