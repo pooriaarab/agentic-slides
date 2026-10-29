@@ -264,13 +264,13 @@ describe("deck list pages", () => {
 
 describe("room token as a subprotocol", () => {
   const call = appFor();
-  const offer = (token: string) => ({ "sec-websocket-protocol": `bearer.${token}` });
+  const offer = (token: string) => ({ upgrade: "websocket", "sec-websocket-protocol": `agentic-slides, agentic-slides.bearer.${Buffer.from(token).toString("base64url")}` });
 
   test("the room route reads the token, and a wrong token is refused", async () => {
     // A token that passes is past auth, and this app has no live rooms, so the answer is 404.
     expect((await call("GET", "/decks/x/ws", { headers: offer(HUMAN) })).status).toBe(404);
     expect((await call("GET", "/decks/x/ws", { headers: offer(`${HUMAN}x`) })).status).toBe(401);
-    expect((await call("GET", "/decks/x/ws", { headers: { "sec-websocket-protocol": "chat, other" } })).status).toBe(401);
+    expect((await call("GET", "/decks/x/ws", { headers: { upgrade: "websocket", "sec-websocket-protocol": "chat, other" } })).status).toBe(401);
   });
 
   test("no other route reads it, and a header beats it", async () => {

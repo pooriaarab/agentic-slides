@@ -3,7 +3,9 @@ import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { COMMAND } from "./brand.js";
 import type { Realtime } from "agentic-realtime";
-import { ConfigError, type Authenticator, type SlidesRole } from "./auth.js";
+import { acceptWebSocketProtocol, principalFromWebSocketRequest } from "agentic-identity/http";
+import type { Auth, PrincipalContext } from "agentic-identity";
+import { ConfigError, type Authenticator, type Caller, type SlidesRole } from "./auth.js";
 import { SlidesError, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
 import { toBase64 } from "./bytes.js";
 import { CSP } from "./render/html.js";
@@ -50,27 +52,31 @@ const body = {
 };
 
 const ROOM_ROUTE = /\/decks\/[^/]+\/ws$/;
-const SUBPROTOCOL = /^bearer\.([A-Za-z0-9._~+-]+)$/;
+/** The WebSocket subprotocol of this app. A browser also offers `agentic-slides.bearer.<token>`, which holds the token. */
+export const ROOM_PROTOCOL = "agentic-slides";
 
-/**
- * A browser cannot set a header on a WebSocket, so it offers the token as the subprotocol `bearer.<token>`.
- * Only the room route reads it, and only when there is no Authorization header.
- */
-function roomToken(request: Request, path: string): { request: Request; offered?: string } {
-  if (!ROOM_ROUTE.test(path) || request.headers.has("authorization")) return { request };
-  const offered = (request.headers.get("sec-websocket-protocol") ?? "").split(",").map((p) => p.trim()).find((p) => SUBPROTOCOL.test(p));
-  if (!offered) return { request };
-  const headers = new Headers(request.headers);
-  headers.set("authorization", `Bearer ${SUBPROTOCOL.exec(offered)![1]}`);
-  return { request: new Request(request.url, { method: request.method, headers }), offered };
+/** The room token helper needs an `Auth` port. This one wraps the app authenticator, and keeps the role for the request. */
+function roomAuth(auth: AppDeps["auth"]): { port: Auth; callers: WeakMap<PrincipalContext, Caller> } {
+  const callers = new WeakMap<PrincipalContext, Caller>();
+  const port: Auth = {
+    async authenticate(request) {
+      const caller = await auth(request);
+      if (!caller) return null;
+      const context: PrincipalContext = { principalId: `${caller.author.kind}:${caller.author.name}`, kind: caller.author.kind, chain: [], scopes: [] };
+      callers.set(context, caller);
+      return context;
+    },
+  };
+  return { port, callers };
 }
 
 const failure = (code: string, message: string, extra: object = {}) => ({ error: { code, message, ...extra } });
 
 /** The HTTP API under /api/v1/slides. It mirrors the CLI. The caller's token names the author of each edit. */
 export function createApp({ service, auth, live, principals = [] }: AppDeps) {
+  const room = roomAuth(auth);
   const configured = new Set(principals.map((who) => `${who.kind}:${who.name}`));
-  const app = new Hono<{ Variables: { author: Principal; role: SlidesRole; offered?: string } }>();
+  const app = new Hono<{ Variables: { author: Principal; role: SlidesRole} }>();
   app.use("*", async (c, next) => {
     await next();
     c.header("x-content-type-options", "nosniff");
@@ -78,17 +84,21 @@ export function createApp({ service, auth, live, principals = [] }: AppDeps) {
   });
   app.get("/health", (c) => c.json({ ok: true, pack: COMMAND, version: VERSION }));
 
-  const api = new Hono<{ Variables: { author: Principal; role: SlidesRole; offered?: string } }>();
+  const api = new Hono<{ Variables: { author: Principal; role: SlidesRole} }>();
   const general = bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => c.json(failure("TOO_LARGE", "The request body is too large."), 413) });
   // A checkpoint has its own, lower cap.
   api.use("*", (c, next) => (c.req.method === "POST" && /\/decks\/[^/]+\/checkpoint$/.test(c.req.path) ? next() : general(c, next)));
   api.use("*", async (c, next) => {
-    const { request, offered } = roomToken(c.req.raw, c.req.path);
-    const caller = await auth(request);
+    let caller: Caller | null;
+    if (ROOM_ROUTE.test(c.req.path)) {
+      // Only the room route reads the token from the subprotocol, and only when there is no Authorization header.
+      const found = await principalFromWebSocketRequest(c.req.raw, room.port, { protocol: ROOM_PROTOCOL });
+      if (found instanceof Response && found.status !== 401) return found;
+      caller = found instanceof Response ? null : (room.callers.get(found) ?? null);
+    } else caller = await auth(c.req.raw);
     if (!caller) return c.json(failure("UNAUTHORIZED", "Send a valid bearer token."), 401, { "www-authenticate": "Bearer" });
     c.set("author", caller.author);
     c.set("role", caller.role);
-    c.set("offered", offered);
     // Only a read is safe for a viewer. This holds for every route added later, too.
     if (caller.role === "viewer" && c.req.method !== "GET" && c.req.method !== "HEAD") {
       return c.json(failure("FORBIDDEN", "This token is a viewer. It cannot change a deck."), 403);
@@ -107,12 +117,8 @@ export function createApp({ service, auth, live, principals = [] }: AppDeps) {
     await service.exists(id); // a deck that does not exist has no room
     const { kind, name } = c.get("author");
     const room = await live(c.env).connect(id, c.req.raw, { principal: { id: `${kind}:${name}`, kind }, role: c.get("role"), name });
-    const offered = c.get("offered");
-    // The browser closes the socket unless the answer names the subprotocol that it offered.
-    if (!offered || room.status !== 101) return room;
-    const headers = new Headers(room.headers);
-    headers.set("sec-websocket-protocol", offered);
-    return new Response(null, { status: 101, headers, webSocket: (room as Response & { webSocket?: unknown }).webSocket } as ResponseInit);
+    // The browser closes the socket unless the answer names the subprotocol that it offered. The answer never names the entry with the token.
+    return acceptWebSocketProtocol(c.req.raw, room, ROOM_PROTOCOL);
   });
   // A live room reads its start state here and saves its state back.
   api.get("/decks/:deck/state", async (c) => c.body((await service.state(c.req.param("deck"))) as Uint8Array<ArrayBuffer>, 200, { "content-type": "application/octet-stream" }));

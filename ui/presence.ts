@@ -12,7 +12,8 @@ export const entryOf = (peer: Peer): PresenceEntry => ({ id: `peer-${peer.client
 const bearerSocket = (token: string) =>
   class extends WebSocket {
     constructor(url: string) {
-      super(url, [`bearer.${token}`]);
+      // The server answers with the bare name. The second entry holds the token as base64url of its UTF-8 bytes.
+      super(url, ["agentic-slides", `agentic-slides.bearer.${btoa(String.fromCharCode(...new TextEncoder().encode(token))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`]);
     }
   };
 

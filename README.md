@@ -180,7 +180,7 @@ the keyboard, presence between two browsers, the agent mark, a failed save, and 
 [docs/screenshots](docs/screenshots), for review. An axe check finds only part of the problems, so a person
 should still check the keyboard and a screen reader.
 
-The UI sends the token to the room as a WebSocket subprotocol (`bearer.<token>`), because a browser cannot set a header on a WebSocket. Only the room route reads it.
+The UI sends the token to the room as a WebSocket subprotocol (`agentic-slides.bearer.<token>`, with the token in base64url), because a browser cannot set a header on a WebSocket. Only the room route reads it.
 
 ### Mount the editor in your app
 

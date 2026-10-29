@@ -2,6 +2,13 @@
 
 This file lists the notable changes to this project, by version.
 
+## Unreleased
+
+### Changed
+
+- The room WebSocket reads the token from the subprotocol `agentic-slides.bearer.<token>`, with the token in base64url. The client must also offer `agentic-slides`. The old `bearer.<token>` form is gone. The bundled UI sends the new form.
+- The package needs `agentic-identity` 0.6.0 or later. It uses `agentic-identity/http` for the room token, and the kinds and the principal check come from `agentic-identity`. A principal name must now use only A-Z a-z 0-9 . _ -.
+
 ## 0.6.1 - 2026-10-29
 
 ### Fixed
