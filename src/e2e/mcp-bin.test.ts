@@ -62,6 +62,13 @@ test.each(["--help", "-h"])("mcp %s prints usage to stdout and exits 0 within 5 
   expect(Date.now() - started).toBeLessThan(5000);
 }, 10_000);
 
+test("--version --help without the mcp word prints the version, as before", async () => {
+  const result = await run(["--version", "--help"]);
+  expect(result.timedOut).toBe(false);
+  expect(result.code).toBe(0);
+  expect(result.stdout).toBe(`${version}\n`);
+});
+
 test.each(["--version", "-V"])("mcp %s prints the package version and exits 0", async (flag) => {
   const result = await run(["mcp", flag]);
   expect(result.timedOut).toBe(false);
