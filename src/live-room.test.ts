@@ -28,7 +28,8 @@ function setup(options: { live?: boolean } = {}) {
     getSnapshot: async () => null,
   };
   const service = createService({ store: createMemoryStore(), blobs: createMemoryBlobs() });
-  const app = createApp({ service, auth: tokenAuth(parseTokens(TOKENS)), live: options.live === false ? undefined : () => live });
+  const tokens = parseTokens(TOKENS);
+  const app = createApp({ service, auth: tokenAuth(tokens), principals: tokens.map(([, caller]) => caller.author), live: options.live === false ? undefined : () => live });
   const call = (method: string, path: string, init: { token?: string; body?: BodyInit | Uint8Array; headers?: Record<string, string> } = {}) =>
     app.request(`${BASE}${path}`, { method, headers: { ...(init.token ? { authorization: `Bearer ${init.token}` } : {}), ...init.headers }, body: init.body as BodyInit | undefined });
   return { service, call, grants, app, contributors };
@@ -256,6 +257,38 @@ describe("a checkpoint keeps the author labels honest", () => {
     const deck = Deck.fromUpdate(await stateOf(call));
     deck.addSlide({ layout: "blank" }, ada);
     expect((await put(call, AGENT, deck.encode())).status).toBe(403);
+  });
+});
+
+describe("a contributor whose token is removed", () => {
+  test("cannot have a change labeled with their name in a checkpoint", async () => {
+    const { call, service, contributors } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    // Zed sent updates to the room before the token was removed from the configuration.
+    contributors.push({ id: "human:zed", kind: "human", machine: false });
+    const state = new Uint8Array(await (await call("GET", "/decks/t/state", { token: HUMAN })).arrayBuffer());
+    const deck = Deck.fromUpdate(state);
+    deck.addSlide({ layout: "blank" }, { kind: "human", name: "zed" });
+    const response = await call("POST", "/decks/t/checkpoint", { token: AGENT, body: deck.encode() });
+    expect(response.status).toBe(403);
+    expect((await service.outline("t")).slides).toHaveLength(0);
+  });
+});
+
+describe("a checkpoint runs the text-fit check that an edit runs", () => {
+  test("text that does not fit its box is refused as TEXT_OVERFLOW, and the stored deck stays as it was", async () => {
+    const { call, service } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    await service.addSlides("t", { outline: "# Title\n- point", author: ada });
+    const before = await service.outline("t");
+    const deck = Deck.fromUpdate(await service.state("t"));
+    const slide = deck.doc.getMap("slides").get(deck.doc.getArray<string>("order").get(0)!) as Y.Map<unknown>;
+    const text = (slide.get("elements") as Y.Array<Y.Map<unknown>>).toArray().find((e) => e.get("kind") === "text")!;
+    text.set("fontSize", 2000);
+    const response = await call("POST", "/decks/t/checkpoint", { token: HUMAN, body: deck.encode() });
+    expect(response.status).toBe(422);
+    expect((await json(response)).error.code).toBe("TEXT_OVERFLOW");
+    expect(await service.outline("t")).toEqual(before);
   });
 });
 

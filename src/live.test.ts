@@ -10,13 +10,13 @@ const TOKEN = "agent-token-0123456789-abcdefghij";
 const requests: string[] = [];
 let server: Server | undefined;
 
-async function fake(routes: Record<string, (request: IncomingMessage) => { status: number; body?: unknown; bytes?: Uint8Array }>): Promise<string> {
+async function fake(routes: Record<string, (request: IncomingMessage) => { status: number; body?: unknown; bytes?: Uint8Array; location?: string }>): Promise<string> {
   requests.length = 0;
   server = createServer((request, response) => {
     requests.push(`${request.method} ${request.url}`);
     const route = routes[`${request.method} ${request.url}`];
-    const { status, body, bytes } = route ? route(request) : { status: 404, body: { error: { code: "NOT_FOUND", message: "no" } } };
-    response.writeHead(status, { "content-type": bytes ? "application/octet-stream" : "application/json" });
+    const { status, body, bytes, location } = route ? route(request) : { status: 404, body: { error: { code: "NOT_FOUND", message: "no" } } };
+    response.writeHead(status, { "content-type": bytes ? "application/octet-stream" : "application/json", ...(location ? { location } : {}) });
     response.end(bytes ?? JSON.stringify(body));
   });
   await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
@@ -50,6 +50,25 @@ describe("who am I", () => {
 
   test("a server that cannot be reached is a coded error, not a raw network error", async () => {
     await expect(whoAmI("http://127.0.0.1:1", TOKEN)).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
+  });
+});
+
+describe("a redirect and a refused token are not read as a live server", () => {
+  test("a redirect is not followed: the client never reads the reply at the other address", async () => {
+    const url = await fake({
+      [ME]: () => ({ status: 302, body: "", location: "/api/v1/slides/elsewhere" }),
+      "GET /api/v1/slides/elsewhere": () => agent,
+    });
+    await expect(whoAmI(url, TOKEN)).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
+    expect(requests).toEqual([`GET ${ME.slice(4)}`]);
+  });
+
+  test.each([
+    ["a deck read", (url: string) => createLiveService({ server: url, token: TOKEN }).outline("d"), "GET /api/v1/slides/decks/d/state"],
+    ["a deck create", (url: string) => createLiveService({ server: url, token: TOKEN }).create({ title: "T", author: { kind: "agent", name: "x" } }), "POST /api/v1/slides/decks"],
+  ])("a token the server refuses after /me is FORBIDDEN, on %s", async (_label, run, route) => {
+    const url = await fake({ [ME]: () => agent, [route]: () => ({ status: 401, body: { error: { code: "UNAUTHORIZED", message: "Send a valid bearer token." } } }) });
+    await expect(run(url)).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });
 

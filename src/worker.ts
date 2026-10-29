@@ -4,6 +4,7 @@ import { createR2Blobs, createD1Store, D1_SCHEMA, type D1Like, type R2Like } fro
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { createApp } from "./api.js";
 import { ConfigError, parseTokens, tokenAuth, type Authenticator } from "./auth.js";
+import type { Principal } from "./core/principal.js";
 import { createService } from "./service.js";
 
 export interface WorkerEnv {
@@ -23,13 +24,18 @@ export type LiveFactory = (env: never, region: Region) => Realtime;
 // Both resources are declared in wrangler.jsonc as EU resources, so the adapters claim "eu" by default.
 // With "eu" the D1 adapter refuses any query that D1 did not report as served in the EU.
 
-function authenticator(config: string | undefined): Authenticator {
+/** The authenticator, and the people and agents that the configured tokens name. A bad setting names none. */
+function tokensOf(config: string | undefined): { auth: Authenticator; principals: Principal[] } {
   try {
-    return tokenAuth(parseTokens(config));
+    const tokens = parseTokens(config);
+    return { auth: tokenAuth(tokens), principals: tokens.map(([, caller]) => caller.author) };
   } catch (error) {
     if (!(error instanceof ConfigError)) throw error;
-    return async () => {
-      throw error;
+    return {
+      auth: async () => {
+        throw error;
+      },
+      principals: [],
     };
   }
 }
@@ -69,7 +75,8 @@ export function createWorker(options: WorkerOptions = {}) {
         blobs: createR2Blobs(images, { region: declared, urlBase: "https://slides.invalid/blob", urlSecret: (urlSecret ??= bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(32)))) }),
       });
       const live = options.live;
-      cached = { db, images, config, region, app: createApp({ service, auth: authenticator(config), live: live && ((env) => live(env as never, declared)) }) };
+      const { auth, principals } = tokensOf(config);
+      cached = { db, images, config, region, app: createApp({ service, auth, principals, live: live && ((env) => live(env as never, declared)) }) };
     }
     return cached.app;
   }
