@@ -169,8 +169,9 @@ The Worker keeps the roles in the same D1 database as the decks. A deck made bef
 it keeps the token role check, and the share routes answer 403 for it. `createApp` takes a `store` for this. Without it, no roles apply.
 
 A revoke closes the live room sockets of that caller. The room refuses that caller until a new grant. A grant of a lower role makes open sockets read only at once.
-`GET /decks` reads on until it fills the page with decks that the caller may see, so a caller with few roles can make a slow call. The scan stops after 2000 decks.
-Each access check writes one audit row. A check that runs while a deck is deleted can leave a row that blocks the id for a new deck (`DECK_EXISTS`). The operator clears it from the `audit` collection.
+`GET /decks` reads on until it fills the page with decks that the caller holds a role on. It reads at most 200 decks. If it stops there, it returns what it found and a `nextCursor` to go on.
+Then `nextCursor` can stand after a deck that the caller cannot see: it shows the id and the time of that deck, and nothing more. A list writes no audit row. A caller with more than 1000 roles sees the decks of the first 1000.
+Each access check on one deck writes one audit row, and so does a link visit to a deck that has links. Limit the rate of `/shared` at the edge. A check that runs while a deck is deleted can leave a row that blocks the id for a new deck (`DECK_EXISTS`). The operator clears it from the `audit` collection.
 
 ## UI
 

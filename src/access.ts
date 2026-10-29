@@ -1,4 +1,4 @@
-import type { PrincipalContext, Subject } from "agentic-identity";
+import { PRINCIPAL_KINDS, SUBJECT_KINDS, type PrincipalContext, type Subject } from "agentic-identity";
 import type { Caller } from "./auth.js";
 
 /** The sharing resource type of a deck. */
@@ -7,7 +7,8 @@ export const DECK = "deck";
 /** The id of a deck is its resource id. A deck id fits the resource id rules of `agentic-identity`. */
 export const DECK_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
-const DELEGATED_KINDS = ["agent_of_human", "agent_of_agent", "user_token"] as const;
+/** The kinds that are not roots of a chain. They hold roles as an agent that has their name. */
+const DELEGATED_KINDS = PRINCIPAL_KINDS.filter((kind) => !(SUBJECT_KINDS as readonly string[]).includes(kind));
 const DELEGATED_PREFIX = new RegExp(`^(${DELEGATED_KINDS.join("|")})_`);
 const SAFE_SUBJECT = /^[A-Za-z0-9_-]{1,128}$/;
 

@@ -80,8 +80,10 @@ async function viaSharing<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-/** The most decks that one list call reads while it looks for decks that the caller may see. */
-const MAX_SCANNED = 2000;
+/** The most decks that one list call reads while it looks for decks that the caller may see. A call that stops there returns what it found, with a cursor to go on. */
+const MAX_SCANNED = 200;
+/** The most pages of 200 roles that a list reads for one caller. A caller with more roles sees the decks of the first ones: the list fails closed. */
+const MAX_HELD_PAGES = 5;
 const DEFAULT_LISTED = 50;
 const SHARE_ROUTE = /\/decks\/[^/]+\/(access|grants|invites|links)(\/|$)/;
 const ROOM_ROUTE = /\/decks\/[^/]+\/ws$/;
@@ -168,6 +170,11 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     }
     const ctx = contextOf(callerOf(c));
     const decision = owned.type === DECK && ctx ? await sharing.can(ctx, actionOf(c.req.method, c.req.path.replace(/^.*?\/decks\/[^/]+/, "")), id) : { allowed: false };
+    if (!decision.allowed && !("role" in decision && decision.role) && ctx && owned.type === DECK) {
+      // The scope of the token can stop an action before the role is read. A caller with a role gets 403, not the answer for a missing deck.
+      const held = await sharing.can({ ...ctx, scopes: [`${DECK}:admin`] }, "read", id);
+      if (held.allowed) return c.json(failure("FORBIDDEN", "This token cannot do this. It may only read."), 403);
+    }
     if (!decision.allowed) {
       return "role" in decision && decision.role
         ? c.json(failure("FORBIDDEN", `This caller is ${decision.role === "owner" ? "an owner" : `a ${decision.role}`} of the deck. It cannot do this.`), 403)
@@ -235,9 +242,18 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
   api.get("/decks", async (c) => {
     const { limit = DEFAULT_LISTED, cursor } = body.page.parse({ limit: c.req.query("limit"), cursor: c.req.query("cursor") });
     if (!sharing || !store) return c.json(await service.list({ limit, cursor }));
-    // A deck with an owner shows only to a caller with a role. A page is filled from later pages, and the cursor is the one after the last deck that it returns.
-    // A caller then never gets the cursor of a deck that it cannot see, unless the scan stops at its limit (see `MAX_SCANNED`).
-    const ctx = contextOf(callerOf(c));
+    // A deck with an owner shows only to a caller with a role. A page is filled from later pages, and the cursor stands after the last deck that it returns.
+    // A caller then gets no cursor of a deck that it cannot see, unless the scan stops at `MAX_SCANNED` decks.
+    // The check is a plain read of the roles of the caller: a list writes no audit row, and a call reads a bounded number of records.
+    const subject = subjectOf(callerOf(c));
+    const held = new Set<string>();
+    if (subject) {
+      for (let at: string | undefined, n = 0; n < MAX_HELD_PAGES; n++) {
+        const roles = await store.query<{ resourceId?: string }>("grants", { where: { subjectKind: subject.kind, subjectId: subject.id }, limit: 200, ...(at === undefined ? {} : { cursor: at }) });
+        for (const { data } of roles.items) if (typeof data.resourceId === "string") held.add(data.resourceId);
+        if ((at = roles.nextCursor) === undefined) break;
+      }
+    }
     const decks: Awaited<ReturnType<Service["list"]>>["decks"] = [];
     let scanned = 0;
     let next: string | undefined = cursor;
@@ -246,7 +262,7 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
       scanned += page.decks.length;
       for (const deck of page.decks) {
         const owned = await store.get<{ type?: string }>("resources", deck.id);
-        if (!owned || (owned.type === DECK && ctx && (await sharing.can(ctx, "read", deck.id)).allowed)) decks.push(deck);
+        if (!owned || (owned.type === DECK && held.has(deck.id))) decks.push(deck);
       }
       next = page.nextCursor;
       if (decks.length >= limit || next === undefined || scanned >= MAX_SCANNED) break;
@@ -375,7 +391,13 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     const share = needSharing();
     // Only an agent with its own identity holds a handle. A delegated token has the name of its agent, but not its identity.
     if (c.get("author").kind !== "agent") return fail("FORBIDDEN", "Only an agent token can accept an invite by handle.");
+    const invite = await store!.get<{ resourceId?: string; role?: string }>("invites", id);
     await viaSharing(() => share.acceptInvite(contextFor(c), id, { handle: c.get("author").name }));
+    // As for a grant: the room learns the new role, and a ban from an earlier revoke ends.
+    const subject = subjectOf(callerOf(c));
+    if (live && subject && typeof invite?.resourceId === "string") {
+      for (const who of roomPrincipals(subject)) await live(c.env).updateRole(invite.resourceId, who, invite.role === "owner" || invite.role === "editor" ? null : "viewer");
+    }
     return c.json({ ok: true });
   });
 
@@ -394,6 +416,8 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     if (!sharing || !store || !token || !DECK_ID.test(id)) return gone;
     // An id with no deck record gets no check, so a caller with no token cannot make audit rows for ids that never existed.
     if ((await store.get<{ type?: string }>("resources", id))?.type !== DECK) return gone;
+    // A deck with no link has nothing to check a link token against, and a check would only write an audit row.
+    if (ctx === null && (await store.query("links", { where: { resourceId: id }, limit: 1 })).items.length === 0) return gone;
     return (await sharing.can(ctx, "read", id, { linkToken: token })).allowed ? { id } : gone;
   };
   shared.get("/:deck", async (c) => {

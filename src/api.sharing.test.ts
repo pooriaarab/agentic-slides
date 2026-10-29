@@ -386,6 +386,89 @@ describe("review fixes", () => {
   });
 });
 
+describe("second review fixes", () => {
+  test("a list writes no audit row, reads a bounded number of decks, and gives a cursor to go on", async () => {
+    const { call, store } = setup();
+    for (let n = 0; n < 205; n++) await call("POST", "/decks", { token: ADA, body: { title: `d${n}`, id: `deck${n}` } });
+    await call("POST", "/decks/deck0/grants", { token: ADA, body: { subjectKind: "human", subjectId: "bob", role: "viewer" } });
+    const ids: string[] = [];
+    let cursor: string | undefined;
+    let calls = 0;
+    do {
+      const page = await call("GET", `/decks?limit=3${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { token: BOB });
+      expect(page.status).toBe(200);
+      ids.push(...page.json.decks.map((d: { id: string }) => d.id));
+      cursor = page.json.nextCursor;
+      calls++;
+    } while (cursor && calls < 10);
+    expect(ids).toEqual(["deck0"]);
+    expect(calls).toBe(2);
+    const rows = async () => {
+      let total = 0;
+      for (let at: string | undefined; ; ) {
+        const page = await store.query("audit", { limit: 200, ...(at ? { cursor: at } : {}) });
+        total += page.items.length;
+        if (!(at = page.nextCursor)) return total;
+      }
+    };
+    const written = await rows();
+    expect((await call("GET", "/decks?limit=3", { token: BOB })).status).toBe(200);
+    expect(await rows()).toBe(written);
+  }, 60_000);
+
+  test("an accepted invite ends a room ban from an earlier revoke", async () => {
+    const { call, room } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    const { id } = (await call("POST", "/decks/plan/invites", { token: ADA, body: { role: "editor", handle: "bot" } })).json;
+    room.length = 0;
+    expect((await call("POST", "/invites/accept", { token: BOT, body: { id } })).status).toBe(200);
+    expect(room).toEqual(["role plan agent:bot null"]);
+  });
+
+  test("an owner with a viewer token gets 403, not 404, on a route that needs an owner", async () => {
+    const { call } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "human", subjectId: "vic", role: "owner" } });
+    const refused = await call("GET", "/decks/plan/access", { token: VIEW });
+    expect(refused.status).toBe(403);
+    expect(refused.json.error.code).toBe("FORBIDDEN");
+    expect((await call("GET", "/decks/other/access", { token: VIEW })).status).toBe(404);
+  });
+
+  test("every write route follows the role: a commenter gets 403, a caller with no role gets 404", async () => {
+    const { call, app } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    const added = (await call("POST", "/decks/plan/slides", { token: ADA, body: { outline: "# Hello\n- one" } })).json;
+    const outline = (await call("GET", "/decks/plan", { token: ADA })).json;
+    const element = outline.slides[0].elements[0].id;
+    await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "human", subjectId: "bob", role: "commenter" } });
+    const routes: [string, string, unknown][] = [
+      ["PUT", `/decks/plan/slides/${added.slideIds[0]}`, { outline: "# New" }],
+      ["PATCH", `/decks/plan/slides/1/elements/${element}`, { x: 10 }],
+      ["POST", "/decks/plan/slides/1/move", { to: 1 }],
+      ["DELETE", "/decks/plan/slides/1", undefined],
+    ];
+    for (const [method, path, body] of routes) {
+      expect((await call(method, path, { token: BOB, body })).status, `${method} ${path} as commenter`).toBe(403);
+      expect((await call(method, path, { token: EVE, body })).status, `${method} ${path} with no role`).toBe(404);
+    }
+    for (const [token, status] of [[BOB, 403], [EVE, 404]] as const) {
+      const response = await app.request(`${BASE}/decks/plan/checkpoint`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: new Uint8Array([0]) });
+      expect(response.status, `checkpoint as ${token === BOB ? "commenter" : "no role"}`).toBe(status);
+    }
+    // The deck stays whole.
+    expect((await call("GET", "/decks/plan", { token: ADA })).json.slides).toHaveLength(1);
+  });
+
+  test("a link visitor writes no audit row for a deck with no link", async () => {
+    const { call, store } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    for (let n = 0; n < 3; n++) expect((await call("GET", "/shared/plan", { headers: { "x-link-token": "x" } })).status).toBe(404);
+    const rows = (await store.query("audit", { where: { resourceId: "plan", outcome: "denied" }, limit: 10 })).items;
+    expect(rows).toEqual([]);
+  });
+});
+
 describe("without a store", () => {
   test("the token role is the only check, and the share routes say sharing is off", async () => {
     const app = createApp({ service: createService({ store: createMemoryStore(), blobs: createMemoryBlobs() }), auth: tokenAuth(parseTokens(TOKENS)) });
