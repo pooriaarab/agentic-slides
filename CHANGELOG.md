@@ -2,15 +2,18 @@
 
 This file lists the notable changes to this project, by version.
 
+## Unreleased
+
 ## 0.5.0 - 2026-10-29
 
 ### Breaking changes
 
-No change to the HTTP API, the SDK, the CLI, or the MCP server breaks a current caller.
+These changes affect how you deploy the Worker. No HTTP API, SDK, CLI, or MCP call changes.
 
 - Run `npm run build` before `wrangler deploy` or `wrangler dev`. Without `dist/ui`, Wrangler stops with an error
-  that names `assets.directory`. See "Changed".
-- When the Worker config serves `dist/ui`, `GET /` answers with the UI page, not with a JSON 404. See "Changed".
+  that names `assets.directory`.
+- When the Worker config serves `dist/ui`, `GET /` answers with the UI page, not with a JSON 404. A monitor that
+  expects a 404 at `/` now gets the page.
 
 ### Added
 
@@ -23,9 +26,7 @@ No change to the HTTP API, the SDK, the CLI, or the MCP server breaks a current 
 
 ### Changed
 
-- When `wrangler.jsonc` serves `dist/ui`, `GET /` answers with the UI page. Before, it answered with the JSON `NOT_FOUND` error. A monitor that expects a 404 at `/` now gets the page.
-- `wrangler.jsonc` serves the UI from `./dist/ui` as static assets. Run `npm run build` before `wrangler deploy`,
-  so that `dist/ui` exists to serve.
+- `wrangler.jsonc` serves the UI from `./dist/ui` as static assets. See "Breaking changes" for the build step.
 - `npm run build` also bundles the UI. `prepack` runs it, so the npm package has `dist/ui`.
 - The package ships the licenses of the UI fonts and of the code in the UI bundle, in `dist/ui/licenses`.
 - `npm run ci:local` runs the browser tests too (`npm run e2e`). Run `npx playwright install chromium` once first.
