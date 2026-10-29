@@ -11,6 +11,7 @@ export default defineConfig({
     "live-worker": "src/live-worker.ts",
     live: "src/live.ts",
     client: "src/client.ts",
+    formats: "src/formats.ts",
     embed: "ui/embed.tsx",
   },
   format: ["esm"],

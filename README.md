@@ -8,7 +8,7 @@
 Build and present slide decks with people and agents.
 
 > Status: early. The deck library, the HTML render, the CLI, the MCP server,
-> PDF export, the HTTP API, live rooms, and the web UI work. ODP and PPTX export are not ready yet.
+> PDF export, the HTTP API, live rooms, and the web UI work. The `agentic-slides/formats` library maps a deck to and from ODP and PPTX. The CLI, the MCP server, and the HTTP API do not use it yet.
 
 ## Install
 
@@ -236,6 +236,23 @@ When the API refuses a call, the method throws `SlidesApiError`. It has `status`
 and a network failure throw the error of `fetch`. The client never retries a call, so a write is sent once.
 The live room route is not in the client. Use `LiveDeck` from `agentic-slides/live`.
 
+## ODP and PPTX
+
+`agentic-slides/formats` maps a deck to and from open slide files. The file code is in `agentic-formats`.
+It runs in Node and in Workers.
+
+```ts
+import { deckToPptx, outlineFromPptx } from "agentic-slides/formats";
+
+const { bytes, warnings } = deckToPptx(await service.outline("talk"), images); // images: Map of blob ref to bytes
+const imported = outlineFromPptx(bytes); // { outline, images, warnings }
+```
+
+`deckToOdp` and `outlineFromOdp` do the same for ODP. Each result has `warnings` for content that the other side
+cannot hold. An import returns outline text and image files. Add them with `addSlides`. The import does not keep
+the layout of the file: the top text box is the title, other text becomes bullets, and the first picture is the image.
+A file that is not safe or not valid throws `FormatError` from `agentic-formats`.
+
 ## Live rooms
 
 The Worker hosts one live room for each deck. A room is a Durable Object from
@@ -295,6 +312,7 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 
 ## Limits
 
+- ODP and PPTX: a table is written as text. Text color, font size, and shapes do not survive an import. A star in imported text becomes the asterisk operator, because an outline has no escape. Bold italic text keeps only bold. A list is written with a "•" in the text, because the neutral deck has no list paragraph. A slide with more text than its box holds fails the add with `TEXT_OVERFLOW`: shorten the outline text and add it again.
 - Text fit is an estimate from font size and box size. It is the same on every run.
 - An image must be a stored blob (`blob:sha256-<64 hex digits>`). A network address is refused.
   An image that is gone from the store, or cannot be decoded, draws as a placeholder
