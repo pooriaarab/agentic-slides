@@ -47,14 +47,16 @@ export function Editor({ client, id, token, canWrite, name }: { client: SlidesCl
   const slide = outline?.slides[at];
   const element = slide?.elements.find((e) => e.id === picked);
 
-  /** Run one change, tell the person when it fails, and read the deck again. */
-  async function act(run: () => Promise<unknown>, failed: string, done?: string) {
+  /** Run one change, tell the person when it fails, and read the deck again. Says whether the change passed. */
+  async function act(run: () => Promise<unknown>, failed: string, done?: string): Promise<boolean> {
     pending.current++;
     try {
       await run();
       if (done) toast({ title: done, tone: "success" });
+      return true;
     } catch (e) {
       toast({ title: failed, description: messageOf(e), tone: "danger" });
+      return false;
     } finally {
       pending.current--;
       await load();
@@ -82,7 +84,7 @@ export function Editor({ client, id, token, canWrite, name }: { client: SlidesCl
     );
   }
 
-  const patchElement = (el: El, patch: ElementPatch, done?: string) => act(() => client.editElement(id, slide!.id, el.id, patch), "The change was not saved", done);
+  const patchElement = (el: El, patch: ElementPatch, done?: string): Promise<boolean> => act(() => client.editElement(id, slide!.id, el.id, patch), "The change was not saved", done);
   const add = (name: string) => act(async () => {
     const { slideIds } = await client.addSlides(id, { layout: name, at: slide ? at + 2 : undefined });
     setOutline(await client.outline(id));
@@ -182,21 +184,23 @@ export function Editor({ client, id, token, canWrite, name }: { client: SlidesCl
   );
 }
 
-function ElementForm({ el, canWrite, save }: { el: El; canWrite: boolean; save: (patch: ElementPatch, done?: string) => Promise<void> }) {
+function ElementForm({ el, canWrite, save }: { el: El; canWrite: boolean; save: (patch: ElementPatch, done?: string) => Promise<boolean> }) {
   // A draft is what the person typed and did not save. Without one, the field follows the deck, so an agent's edit shows.
   const [text, setText] = useState<string | undefined>();
   const [alt, setAlt] = useState<string | undefined>();
-  const [edited, setEdited] = useState<Partial<Record<"x" | "y" | "w" | "h", number>>>({});
-  const box = { x: el.x, y: el.y, w: el.w, h: el.h, ...edited };
-  const num = (key: keyof typeof box) => (
-    <Input key={key} label={key.toUpperCase()} type="number" value={box[key]} disabled={!canWrite} onChange={(e) => setEdited({ ...edited, [key]: Number(e.target.value) })} />
+  // The fields keep the typed text, so an empty field is not the number 0.
+  const [edited, setEdited] = useState<Partial<Record<"x" | "y" | "w" | "h", string>>>({});
+  const shown = { x: String(el.x), y: String(el.y), w: String(el.w), h: String(el.h), ...edited };
+  const bad = (key: keyof typeof shown) => !/^-?\d+$/.test(shown[key].trim());
+  const num = (key: keyof typeof shown) => (
+    <Input key={key} label={key.toUpperCase()} type="number" value={shown[key]} disabled={!canWrite} error={bad(key) ? "Type a whole number." : undefined} onChange={(e) => setEdited({ ...edited, [key]: e.target.value })} />
   );
   return (
     <form className="element-form" onSubmit={(e) => { e.preventDefault(); }}>
       {el.kind === "text" && (
         <>
           <Textarea label="Text" hint="Use **bold** and *italic*." rows={5} value={text ?? markup(el.runs)} disabled={!canWrite} onChange={(e) => setText(e.target.value)} />
-          <Button disabled={!canWrite} onClick={() => void save({ text: text ?? markup(el.runs) }, "Text saved").then(() => setText(undefined))}>Save text</Button>
+          <Button disabled={!canWrite} onClick={() => void save({ text: text ?? markup(el.runs) }, "Text saved").then((ok) => ok && setText(undefined))}>Save text</Button>
         </>
       )}
       {el.kind === "shape" && (
@@ -207,13 +211,13 @@ function ElementForm({ el, canWrite, save }: { el: El; canWrite: boolean; save: 
       {el.kind === "image" && (
         <>
           <Input label="Description" hint="Say what the picture shows." value={alt ?? el.alt} disabled={!canWrite} onChange={(e) => setAlt(e.target.value)} />
-          <Button disabled={!canWrite} onClick={() => void save({ alt: alt ?? el.alt }, "Description saved").then(() => setAlt(undefined))}>Save description</Button>
+          <Button disabled={!canWrite} onClick={() => void save({ alt: alt ?? el.alt }, "Description saved").then((ok) => ok && setAlt(undefined))}>Save description</Button>
         </>
       )}
       <fieldset className="box">
         <legend>Position and size</legend>
         {num("x")}{num("y")}{num("w")}{num("h")}
-        <Button variant="secondary" disabled={!canWrite} onClick={() => void save(box, "Position saved").then(() => setEdited({}))}>Save position</Button>
+        <Button variant="secondary" disabled={!canWrite || (["x", "y", "w", "h"] as const).some(bad)} onClick={() => void save({ x: Number(shown.x), y: Number(shown.y), w: Number(shown.w), h: Number(shown.h) }, "Position saved").then((ok) => ok && setEdited({}))}>Save position</Button>
       </fieldset>
     </form>
   );

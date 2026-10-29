@@ -156,7 +156,7 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
       try {
         found = await store.query(INDEX, { orderBy: { field: "savedAt", direction: "desc" }, limit, cursor: page.cursor });
       } catch (error) {
-        if (page.cursor !== undefined && !(error instanceof StoreConflictError)) fail("BAD_PATCH", "the cursor is not one that this list gave");
+        if (page.cursor !== undefined && error instanceof Error && error.message === "invalid cursor") fail("BAD_PATCH", "the cursor is not one that this list gave");
         throw error;
       }
       const decks = found.items.flatMap(({ id, data }): DeckSummary[] => {

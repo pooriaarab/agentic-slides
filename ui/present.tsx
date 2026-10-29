@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button, EmptyState } from "agentic-design/react";
 import type { DeckOutline, SlidesClient } from "../src/client.js";
+import { parseRoute } from "./route.js";
 import { messageOf } from "./session.js";
 import { SlideView } from "./slide.js";
 
@@ -9,8 +10,16 @@ export function Present({ client, id, start }: { client: SlidesClient; id: strin
   const [outline, setOutline] = useState<DeckOutline | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [at, setAt] = useState(start - 1);
-  // A new number in the address moves the deck.
-  useEffect(() => setAt(start - 1), [start]);
+  // A new number in the address moves the deck. Moving the deck rewrites the address without this event, so the same number still counts.
+  useEffect(() => {
+    setAt(start - 1);
+    const on = () => {
+      const next = parseRoute(location.hash);
+      if (next.name === "present") setAt(next.at - 1);
+    };
+    addEventListener("hashchange", on);
+    return () => removeEventListener("hashchange", on);
+  }, [start]);
   const [attempt, setAttempt] = useState(0);
   const total = outline?.slides.length ?? 0;
   const cur = Math.min(at, Math.max(0, total - 1));

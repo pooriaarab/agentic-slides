@@ -275,3 +275,25 @@ describe("room token as a subprotocol", () => {
     expect((await call("GET", "/decks/x/ws", { token: `${HUMAN}x`, headers: offer(HUMAN) })).status).toBe(401);
   });
 });
+
+describe("deck index", () => {
+  const ada = { kind: "human", name: "ada" } as const;
+
+  test("a refused edit leaves the list entry as it was", async () => {
+    const service = createService({ store: createMemoryStore(), blobs: createMemoryBlobs() });
+    await service.create({ title: "Plan", id: "plan", author: ada });
+    const before = await service.list();
+    await new Promise((r) => setTimeout(r, 5));
+    await expect(service.checkpoint("plan", new Uint8Array([1, 2, 3]), [ada])).rejects.toMatchObject({ code: "INVALID_UPDATE" });
+    await expect(service.setSlide("plan", 1, { outline: "# no such slide", author: ada })).rejects.toBeTruthy();
+    expect(await service.list()).toEqual(before);
+  });
+
+  test("a store fault on a page is a server error, and only a bad cursor is a client error", async () => {
+    const store = createMemoryStore();
+    const down = Object.assign(Object.create(store), { query: async () => { throw new Error("D1 is down"); } });
+    const service = createService({ store: down, blobs: createMemoryBlobs() });
+    await expect(service.list({ cursor: "abc" })).rejects.toThrow("D1 is down");
+    await expect(createService({ store, blobs: createMemoryBlobs() }).list({ cursor: "abc" })).rejects.toMatchObject({ code: "BAD_PATCH" });
+  });
+});
