@@ -104,6 +104,11 @@ The token sets the author kind and the role. A client cannot change either. A vi
 reads, and the room drops its edits. The room keeps its state in the Durable Object, so a restart
 keeps it. A checkpoint saves the state to the store, so the HTTP API and the CLI see it.
 
+A checkpoint is checked before it is saved. Every element must follow the rules of an edit (box inside the slide,
+known fields, image sources that are blob keys). Each new or changed item must carry an author label of the caller, or of a
+person or agent that the room saw send an update. Otherwise the server answers 403 and saves nothing. Inside one room, a
+writer can still label a change as another writer of that room.
+
 ## Features
 
 - Slides on a fixed 1280 by 720 space (16:9), kept in a Yjs document.

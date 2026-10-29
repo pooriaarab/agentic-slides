@@ -2,8 +2,9 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { fromBase64, toBase64 } from "./bytes.js";
 import { Deck, type DeckOutline, type ElementPatch } from "./core/deck.js";
-import { checkTheme, isLayout, LAYOUT_NAMES, type LayoutName } from "./core/layouts.js";
+import { isLayout, LAYOUT_NAMES, type LayoutName } from "./core/layouts.js";
 import { checkImageSrc, isBlobRef } from "./core/model.js";
+import { checkAuthors, checkDeckState } from "./core/verify.js";
 import { SlidesError, fail, type Principal } from "./core/principal.js";
 import { DEFAULT_LIMITS, checkDeckSize, tooManyPixels, type Limits } from "./export/limits.js";
 import { renderPdf } from "./export/pdf.js";
@@ -26,17 +27,6 @@ function sniff(data: Uint8Array): string {
 
 /** The most bytes of deck state that a live room takes or a checkpoint saves. The room itself stops at 1.5 MiB. */
 export const MAX_LIVE_BYTES = 1_572_864;
-
-/** Check a deck that came from a client: the theme, the layouts, the size, and the images. A deck that fails is never saved. */
-function verify(deck: Deck, limits: Limits): void {
-  const outline = deck.outline();
-  checkTheme(outline.theme);
-  checkDeckSize(outline, limits);
-  for (const slide of outline.slides) {
-    if (!isLayout(slide.layout)) fail("UNKNOWN_LAYOUT", `unknown layout "${String(slide.layout).slice(0, 40)}"`, slide.index);
-    for (const element of slide.elements) if (element.kind === "image") checkImageSrc(element.src);
-  }
-}
 
 export interface Ports {
   store: Store;
@@ -141,6 +131,12 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
       return (await load(id)).outline();
     },
 
+    /** Fails with NO_DECK when there is no deck. Cheaper than `state`. */
+    async exists(id: string): Promise<void> {
+      checkId(id);
+      if (!(await store.get(COLLECTION, id))) fail("NO_DECK", `no deck "${id}"`);
+    },
+
     /** The stored deck as a Yjs update. A live room starts from it. */
     async state(id: string): Promise<Uint8Array> {
       return (await load(id)).encode();
@@ -148,14 +144,19 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
 
     /**
      * Merge the state of a live room into the stored deck. The update is checked on a copy first, so a
-     * bad one writes nothing. A deck that does not exist is never made here.
+     * bad one writes nothing. A deck that does not exist is never made here. Each change must carry a label
+     * from `allowed`: the caller, and the people and agents that the room saw send an update.
      */
-    async checkpoint(id: string, update: Uint8Array): Promise<void> {
+    async checkpoint(id: string, update: Uint8Array, allowed: Principal[]): Promise<void> {
       if (update.length === 0 || update.length > MAX_LIVE_BYTES) fail(update.length === 0 ? "INVALID_UPDATE" : "TOO_LARGE", `a checkpoint is from 1 to ${MAX_LIVE_BYTES} bytes`);
       await mutate(id, (deck) => {
         try {
+          const before = deck.outline();
           deck.applyUpdate(update);
-          verify(deck, limits);
+          const after = deck.outline();
+          checkDeckState(after);
+          checkDeckSize(after, limits);
+          checkAuthors(before, after, allowed);
         } catch (error) {
           if (error instanceof SlidesError) throw error;
           return fail("INVALID_UPDATE", "the update is not a deck state");

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { COMMAND } from "./brand.js";
 import type { Realtime } from "agentic-realtime";
 import { ConfigError, type Authenticator, type SlidesRole } from "./auth.js";
-import { SlidesError, type Principal, type SlidesErrorCode } from "./core/principal.js";
+import { PRINCIPAL_KINDS, SlidesError, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
 import { toBase64 } from "./bytes.js";
 import { CSP } from "./render/html.js";
 import { PRESENT_CSP } from "./render/present.js";
@@ -61,7 +61,7 @@ export function createApp({ service, auth, live }: AppDeps) {
   const api = new Hono<{ Variables: { author: Principal; role: SlidesRole } }>();
   const general = bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => c.json(failure("TOO_LARGE", "The request body is too large."), 413) });
   // A checkpoint has its own, lower cap.
-  api.use("*", (c, next) => (c.req.path.endsWith("/checkpoint") ? next() : general(c, next)));
+  api.use("*", (c, next) => (c.req.method === "POST" && /\/decks\/[^/]+\/checkpoint$/.test(c.req.path) ? next() : general(c, next)));
   api.use("*", async (c, next) => {
     const caller = await auth(c.req.raw);
     if (!caller) return c.json(failure("UNAUTHORIZED", "Send a valid bearer token."), 401, { "www-authenticate": "Bearer" });
@@ -82,9 +82,9 @@ export function createApp({ service, auth, live }: AppDeps) {
     if (!live) return c.json(failure("NOT_FOUND", "This server hosts no live rooms."), 404);
     if (c.req.header("upgrade")?.toLowerCase() !== "websocket") return c.json(failure("UPGRADE_REQUIRED", "Open this route as a WebSocket."), 426);
     const id = c.req.param("deck");
-    await service.state(id); // a deck that does not exist has no room
+    await service.exists(id); // a deck that does not exist has no room
     const { kind, name } = c.get("author");
-    return live(c.env).connect(id, c.req.raw, { principal: { id: name, kind }, role: c.get("role"), name });
+    return live(c.env).connect(id, c.req.raw, { principal: { id: `${kind}:${name}`, kind }, role: c.get("role"), name });
   });
   // A live room reads its start state here and saves its state back.
   api.get("/decks/:deck/state", async (c) => c.body((await service.state(c.req.param("deck"))) as Uint8Array<ArrayBuffer>, 200, { "content-type": "application/octet-stream" }));
@@ -92,7 +92,13 @@ export function createApp({ service, auth, live }: AppDeps) {
     "/decks/:deck/checkpoint",
     bodyLimit({ maxSize: MAX_LIVE_BYTES, onError: (c) => c.json(failure("TOO_LARGE", "The update is too large."), 413) }),
     async (c) => {
-      await service.checkpoint(c.req.param("deck"), new Uint8Array(await c.req.arrayBuffer()));
+      const id = c.req.param("deck");
+      const update = new Uint8Array(await c.req.arrayBuffer());
+      await service.exists(id);
+      // The room knows who sent updates, from the tokens. Those people and agents may label a change, with the caller.
+      const seen = live ? (await live(c.env).meta(id)).contributors : [];
+      const allowed = [c.get("author"), ...seen.flatMap((who) => (PRINCIPAL_KINDS.includes(who.kind) ? [parsePrincipal(who.id)] : []))];
+      await service.checkpoint(id, update, allowed);
       return c.json({ ok: true });
     },
   );

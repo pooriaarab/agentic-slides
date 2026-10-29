@@ -19,9 +19,10 @@ const bot = { kind: "agent_of_human", name: "bot" } as const;
 
 function setup(options: { live?: boolean } = {}) {
   const grants: { id: string; grant: Grant }[] = [];
+  const contributors: { id: string; kind: string; machine: boolean }[] = [];
   const live: Realtime = {
     connect: async (id, _request, grant) => (grants.push({ id, grant }), new Response("joined", { status: 200 })),
-    meta: async () => ({ updates: 0, compactions: 0, contributors: [] }),
+    meta: async () => ({ updates: 0, compactions: 0, contributors: contributors as never }),
     createSnapshot: async () => null,
     listSnapshots: async () => [],
     getSnapshot: async () => null,
@@ -30,7 +31,7 @@ function setup(options: { live?: boolean } = {}) {
   const app = createApp({ service, auth: tokenAuth(parseTokens(TOKENS)), live: options.live === false ? undefined : () => live });
   const call = (method: string, path: string, init: { token?: string; body?: BodyInit | Uint8Array; headers?: Record<string, string> } = {}) =>
     app.request(`${BASE}${path}`, { method, headers: { ...(init.token ? { authorization: `Bearer ${init.token}` } : {}), ...init.headers }, body: init.body as BodyInit | undefined });
-  return { service, call, grants, app };
+  return { service, call, grants, app, contributors };
 }
 
 const json = async (response: Response) => (await response.json()) as Record<string, any>;
@@ -97,8 +98,8 @@ describe("the room route checks the caller before it joins", () => {
     await service.create({ title: "T", id: "t", author: ada });
     for (const token of [AGENT, WATCHER]) expect((await call("GET", "/decks/t/ws", { token, headers: { ...ws, "x-principal": "human:ada" } })).status).toBe(200);
     expect(grants.map((g) => g.grant)).toEqual([
-      { principal: { id: "bot", kind: "agent_of_human" }, role: "editor", name: "bot" },
-      { principal: { id: "eve", kind: "human" }, role: "viewer", name: "eve" },
+      { principal: { id: "agent_of_human:bot", kind: "agent_of_human" }, role: "editor", name: "bot" },
+      { principal: { id: "human:eve", kind: "human" }, role: "viewer", name: "eve" },
     ]);
     expect(grants.every((g) => g.id === "t")).toBe(true);
   });
@@ -120,8 +121,10 @@ describe("a checkpoint saves the room state", () => {
   });
 
   test("two checkpoints from two copies merge, and neither loses its slide", async () => {
-    const { call, service } = setup();
+    const { call, service, contributors } = setup();
     await service.create({ title: "T", id: "t", author: ada });
+    // Both wrote into one room, so the room saw both. The deck label is the one that the merge keeps.
+    contributors.push({ id: "human:ada", kind: "human", machine: false }, { id: "agent_of_human:bot", kind: "agent_of_human", machine: true });
     const state = new Uint8Array(await (await call("GET", "/decks/t/state", { token: HUMAN })).arrayBuffer());
     const one = update((d) => d.addSlide({ layout: "blank" }, ada), state);
     const two = update((d) => d.addSlide({ layout: "title" }, bot), state);
@@ -144,8 +147,7 @@ describe("a checkpoint saves the room state", () => {
         deck.addSlide({ layout: "blank" }, ada);
         const slide = doc.getMap("slides").get(doc.getArray<string>("order").get(0)!) as Y.Map<unknown>;
         const element = new Y.Map<unknown>();
-        element.set("kind", "image");
-        element.set("src", "https://evil.example/a.png");
+        for (const [key, value] of Object.entries({ id: "e1", kind: "image", x: 0, y: 0, w: 100, h: 100, alt: "", createdBy: bot, editedBy: bot, src: "https://evil.example/a.png" })) element.set(key, value);
         (slide.get("elements") as Y.Array<Y.Map<unknown>>).push([element]);
         return Y.encodeStateAsUpdate(doc);
       },
@@ -189,5 +191,95 @@ describe("a checkpoint saves the room state", () => {
     expect((await call("POST", "/decks/t/checkpoint", { token: WATCHER, body })).status).toBe(403);
     expect((await call("POST", "/decks/new/checkpoint", { token: HUMAN, body })).status).toBe(404);
     await expect(service.outline("new")).rejects.toMatchObject({ code: "NO_DECK" });
+  });
+});
+
+// The room cannot read a deck, and a client writes the author labels in it. A checkpoint is where the server checks them.
+describe("a checkpoint keeps the author labels honest", () => {
+  const put = (call: ReturnType<typeof setup>["call"], token: string, body: Uint8Array) =>
+    call("POST", "/decks/t/checkpoint", { token, body, headers: { "content-type": "application/octet-stream" } });
+  const stateOf = async (call: ReturnType<typeof setup>["call"]) => new Uint8Array(await (await call("GET", "/decks/t/state", { token: HUMAN })).arrayBuffer());
+  const first = (doc: Y.Doc) => doc.getMap("slides").get(doc.getArray<string>("order").get(0)!) as Y.Map<unknown>;
+
+  test("an agent cannot save a change that says a person made it", async () => {
+    const { call, service } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    const deck = Deck.fromUpdate(await stateOf(call));
+    deck.addSlide({ layout: "blank" }, bot);
+    first(deck.doc).set("createdBy", ada);
+    first(deck.doc).set("editedBy", ada);
+    deck.doc.getMap("deck").set("editedBy", ada);
+    const before = await service.outline("t");
+    const response = await put(call, AGENT, deck.encode());
+    expect(response.status).toBe(403);
+    expect((await json(response)).error.code).toBe("FORBIDDEN");
+    expect(await service.outline("t")).toEqual(before);
+  });
+
+  test("an agent cannot change a person's element and leave the person's label on it", async () => {
+    const { call, service } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    await service.addSlides("t", { outline: "# Title\n- point", author: ada });
+    const deck = Deck.fromUpdate(await stateOf(call));
+    const title = deck.outline().slides[0]!.elements.find((e) => e.kind === "text")!;
+    deck.editElement(0, title.id, { text: "Forged" }, ada); // labeled as ada, by a copy that an agent holds
+    const response = await put(call, AGENT, deck.encode());
+    expect(response.status).toBe(403);
+    expect((await service.outline("t")).slides[0]!.elements.some((e) => e.kind === "text" && e.runs.some((r) => r.text === "Forged"))).toBe(false);
+  });
+
+  test("a label that no one wrote is refused, not read as a person", async () => {
+    const { call, service } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    const deck = Deck.fromUpdate(await stateOf(call));
+    deck.addSlide({ layout: "blank" }, bot);
+    first(deck.doc).delete("editedBy");
+    expect((await put(call, AGENT, deck.encode())).status).toBe(403);
+  });
+
+  test("a person who is in the room can have their own change saved by an agent's checkpoint", async () => {
+    const { call, service, contributors } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    const deck = Deck.fromUpdate(await stateOf(call));
+    deck.addSlide({ layout: "blank" }, ada);
+    deck.addSlide({ layout: "title" }, bot);
+    expect((await put(call, AGENT, deck.encode())).status).toBe(403); // ada never sent anything to the room
+    contributors.push({ id: "human:ada", kind: "human", machine: false });
+    expect((await put(call, AGENT, deck.encode())).status).toBe(200);
+    expect((await service.outline("t")).slides.map((s) => s.createdBy.name).sort()).toEqual(["ada", "bot"]);
+  });
+
+  test("a name from another kind does not pass for the same person", async () => {
+    const { call, service, contributors } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    contributors.push({ id: "agent_of_human:ada", kind: "agent_of_human", machine: true });
+    const deck = Deck.fromUpdate(await stateOf(call));
+    deck.addSlide({ layout: "blank" }, ada);
+    expect((await put(call, AGENT, deck.encode())).status).toBe(403);
+  });
+});
+
+describe("a checkpoint holds every element to the rules of an edit", () => {
+  test.each([
+    ["a box outside the slide", (e: Y.Map<unknown>) => e.set("x", 99_999), "OUT_OF_BOUNDS"],
+    ["a box with no size", (e: Y.Map<unknown>) => e.set("w", 0), "OUT_OF_BOUNDS"],
+    ["a box that is not a number", (e: Y.Map<unknown>) => e.set("h", "tall"), "OUT_OF_BOUNDS"],
+    ["a key that no element has", (e: Y.Map<unknown>) => e.set("evil", "<script>"), "BAD_PATCH"],
+    ["a color that is not a token", (e: Y.Map<unknown>) => e.set("color", "#ff0000"), "BAD_PATCH"],
+    ["a font size that is not a number", (e: Y.Map<unknown>) => e.set("fontSize", "big"), "BAD_PATCH"],
+    ["a kind that does not exist", (e: Y.Map<unknown>) => e.set("kind", "video"), "BAD_PATCH"],
+    ["an element id that is not text", (e: Y.Map<unknown>) => e.set("id", 7), "BAD_PATCH"],
+  ])("%s is refused and the stored deck stays as it was", async (_label, change, code) => {
+    const { call, service } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    const before = await service.outline("t");
+    const deck = Deck.fromUpdate(await service.state("t"));
+    deck.addSlidesFromOutline("# Title\n- point", { author: ada, images: {} });
+    const slide = deck.doc.getMap("slides").get(deck.doc.getArray<string>("order").get(0)!) as Y.Map<unknown>;
+    change((slide.get("elements") as Y.Array<Y.Map<unknown>>).get(0)!);
+    const response = await call("POST", "/decks/t/checkpoint", { token: HUMAN, body: deck.encode() });
+    expect(response.status).toBe(code === "OUT_OF_BOUNDS" ? 422 : 400);
+    expect((await json(response)).error.code).toBe(code);
+    expect(await service.outline("t")).toEqual(before);
   });
 });
