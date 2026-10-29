@@ -141,7 +141,7 @@ npm run e2e
 
 They create a deck, add a slide, edit text, reload, and present with the arrow keys. They also check
 the keyboard, presence between two browsers, the agent mark, a failed save, and a viewer. An axe check
-(WCAG 2.2 AA) runs on every view in light and dark. The same run writes the screenshots in
+(WCAG 2.2 AA) runs on every view in light and dark, including the error states and the viewer. `npm run e2e:screenshots` runs the same tests and writes the screenshots in
 [docs/screenshots](docs/screenshots), for review. An axe check finds only part of the problems, so a person
 should still check the keyboard and a screen reader.
 

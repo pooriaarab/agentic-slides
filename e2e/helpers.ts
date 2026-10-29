@@ -30,11 +30,14 @@ export async function agentDeck(base: string | undefined, title: string): Promis
 
 export const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
-/** Fails on any WCAG 2.2 AA violation that axe can find, and keeps a screenshot as a review artifact. */
+/** Fails on any WCAG 2.2 AA violation that axe can find, and, when UPDATE_SCREENSHOTS=1, keeps a screenshot as a review artifact. */
 export async function checkView(page: Page, name: string, scheme: "light" | "dark") {
   await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
-  await page.waitForTimeout(250);
+  // Wait until the page has taken the scheme and painted, so axe never reads colors half way through a change.
+  await page.waitForFunction((dark) => matchMedia("(prefers-color-scheme: dark)").matches === dark, scheme === "dark");
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
   const { violations } = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   expect(violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
-  writeFileSync(`docs/screenshots/${name}-${scheme}.png`, await page.screenshot());
+  // The images change a little from run to run, so only `npm run e2e:screenshots` writes them.
+  if (process.env.UPDATE_SCREENSHOTS === "1") writeFileSync(`docs/screenshots/${name}-${scheme}.png`, await page.screenshot());
 }
