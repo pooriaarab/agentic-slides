@@ -20,7 +20,7 @@ async function setup() {
 const exportOf = (store: Store, subject: Subject) => slidesAccount.exportAccount(subject, { store });
 
 describe("slidesAccount", () => {
-  it("exports owned decks, grants, and authored records, and no one else's data", async () => {
+  it("exports owned decks, grants, and authored records, and no deck of someone else", async () => {
     const { store, sharing, decks, make } = await setup();
     await make("mine", ana);
     await make("theirs", { kind: "human", id: "bo" }, "human");
@@ -68,8 +68,67 @@ describe("slidesAccount", () => {
 
     expect(await slidesAccount.eraseAccount(ana, { store })).toMatchObject({ decks: 0, grants: 1 });
 
-    await expect(decks.outline("duo")).resolves.toMatchObject({ title: "duo" });
+    await expect(decks.outline("duo")).resolves.toMatchObject({ title: "duo", editedBy: { kind: "human", name: "erased" } });
     expect((await sharing.can(ctx({ kind: "human", id: "bo" }), "write", "duo")).role).toBe("owner");
+  });
+
+  it("leaves a delegated agent alone when a person is erased, and the reverse", async () => {
+    const { store, decks, make } = await setup();
+    await make("d", { kind: "human", id: "bo" });
+    await decks.addSlides("d", { outline: "# A", author: { kind: "agent_of_human", name: "ana" } });
+
+    expect((await exportOf(store, ana)).authored).toEqual([]);
+    expect(await slidesAccount.eraseAccount(ana, { store })).toEqual({ decks: 0, grants: 0, authored: 0 });
+    expect((await decks.outline("d")).slides[0]!.createdBy).toEqual({ kind: "agent_of_human", name: "ana" });
+  });
+
+  it("keeps a grant on a resource that is not a deck, and the stored bytes lose the name", async () => {
+    const { store, sharing, decks, make } = await setup();
+    const bo = { ...ctx({ kind: "human", id: "bo" }), scopes: ["sheet:admin"] };
+    await sharing.createResource(bo, { id: "sheet", type: "sheet" });
+    await sharing.grant(bo, "sheet", ana, "editor");
+    await make("d", { kind: "human", id: "bo" });
+    await decks.addSlides("d", { outline: "# A", author: { kind: "human", name: "zoeanaxyz" } });
+    const zoe: Subject = { kind: "human", id: "zoeanaxyz" };
+    const bytes = async () => JSON.stringify(await store.get("decks", "d"));
+    const atob64 = (text: string) => Buffer.from(JSON.parse(text).update, "base64").toString("latin1");
+    expect(atob64(await bytes())).toContain("zoeanaxyz");
+
+    await slidesAccount.eraseAccount(zoe, { store });
+    await slidesAccount.eraseAccount(ana, { store });
+
+    expect(atob64(await bytes())).not.toContain("zoeanaxyz");
+    expect((await sharing.can({ ...ctx(ana), scopes: ["sheet:admin"] }, "write", "sheet")).role).toBe("editor");
+  });
+
+  it("finishes after a stop between the deck delete and the sharing delete", async () => {
+    const { store, sharing, decks, make } = await setup();
+    await make("mine", ana);
+    const run = store.transaction.bind(store);
+    let stopped = false;
+    // The first delete of the resource record (the last step of the sharing delete) fails once, as a stop would.
+    const stopping: Store = {
+      ...store,
+      transaction: (fn) =>
+        run((tx) =>
+          fn({
+            ...tx,
+            delete: async (collection, id) => {
+              if (!stopped && collection === "resources" && id === "mine") {
+                stopped = true;
+                throw new Error("stop");
+              }
+              return tx.delete(collection, id);
+            },
+          }),
+        ),
+    };
+
+    await expect(slidesAccount.eraseAccount(ana, { store: stopping })).rejects.toThrow();
+    await expect(decks.outline("mine")).rejects.toMatchObject({ code: "NO_DECK" });
+    expect(await slidesAccount.eraseAccount(ana, { store })).toMatchObject({ decks: 0, grants: 1 });
+    expect(await store.get("resources", "mine")).toBeNull();
+    expect((await sharing.can(ctx(ana), "read", "mine")).allowed).toBe(false);
   });
 
   it("keeps the kind of an erased agent author", async () => {

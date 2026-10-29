@@ -423,7 +423,7 @@ const data = await slidesAccount.exportAccount({ kind: "human", id: "ana" }, { s
 const counts = await slidesAccount.eraseAccount({ kind: "human", id: "ana" }, { store });
 ```
 
-The export has three collections: `decks` (decks the subject owns, with the outline), `grants` (roles the subject holds), and `authored` (slides and elements the subject wrote in decks of other people). The erase deletes each deck where the subject is the only owner. It removes the other roles. It replaces the subject as author with `erased` and keeps the author kind. A second erase counts zero. Run it with writes stopped. Clear live rooms in the host. Audit rows of grant changes belong to `agentic-identity`.
+The export has three collections: `decks` (decks the subject owns, with the outline), `grants` (roles the subject holds), and `authored` (slides and elements the subject wrote in decks of other people). The erase deletes each deck where the subject is the only owner. It removes the other roles. It replaces the subject as author with `erased` and keeps the author kind. The outline of an owned deck is exported as it is, with the author names of other people in it. A second erase counts zero. Run it with writes stopped. The plug-in does not reach live rooms: the host must close them first, or a room can save the deck again. Audit rows of grant changes belong to `agentic-identity`. When a deck has two owners, the erase revokes the grant of the subject through `agentic-identity`, and that writes one audit row. Erase the audit rows after this plug-in.
 
 ## Features
 

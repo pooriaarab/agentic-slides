@@ -1,10 +1,9 @@
 // The account plug-in of agentic-slides: a host calls `exportAccount` and `eraseAccount` and never reads the storage layout.
-// The shape is the one of the other apps. It is provisional until `agentic-identity/account` names a package contract.
+// The shape is the one of the other apps. It is not the `AccountApp` of `agentic-identity/account` (files of one subject). A host that uses `AccountApp` writes a small adapter. It moves to a package contract when identity ships one.
 //
 // A deck is owned through its sharing record, so the plug-in reads the grants of the subject first. Identity audit rows
 // (who changed a grant) belong to `agentic-identity`: the host exports and erases them with its own account step.
-import type { Json, Store, Subject } from "agentic-identity";
-import { createSharing } from "agentic-identity";
+import { MAX_OWNERS_ON_ERASE, SUBJECT_KINDS, createSharing, type Json, type Store, type Subject } from "agentic-identity";
 import { checkSubject, DECK, principalsOf } from "./access.js";
 import { fromBase64, toBase64 } from "./bytes.js";
 import { Deck } from "./core/deck.js";
@@ -96,8 +95,9 @@ export const slidesAccount: SlidesAccount = {
         counts.grants++;
         continue;
       }
-      const owners = await store.query("grants", { where: { resourceId: deckId, role: "owner" }, limit: 2 });
-      if (owners.items.some((o) => o.id !== docId)) {
+      const owners = await store.query("grants", { where: { resourceId: deckId, role: "owner" }, limit: MAX_OWNERS_ON_ERASE + 1 });
+      // Count the owners that identity counts: a grant with no known subject kind (not migrated) is not an owner.
+      if (owners.items.some((o) => o.id !== docId && (SUBJECT_KINDS as readonly unknown[]).includes(o.data.subjectKind))) {
         await sharing.revokeGrant(ctx, deckId, who);
         counts.grants++;
         continue;
