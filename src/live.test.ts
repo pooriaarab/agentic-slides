@@ -106,9 +106,10 @@ describe("a live call fails before it opens a room", () => {
 
   test("the list passes the page to the server and reads the answer", async () => {
     const decks = [{ id: "d", title: "T", machineMade: false, savedAt: 1 }];
-    const url = await fake({ "GET /api/v1/slides/decks?limit=2&cursor=abc": () => ({ status: 200, body: { decks, nextCursor: "next" } }), "GET /api/v1/slides/decks": () => ({ status: 200, body: { nodecks: 1 } }) });
+    const url = await fake({ "GET /api/v1/slides/decks?limit=2&cursor=abc": () => ({ status: 200, body: { decks, nextCursor: "next" } }), "GET /api/v1/slides/decks": () => ({ status: 200, body: { nodecks: 1 } }), "GET /api/v1/slides/decks?limit=3": () => ({ status: 200, body: { decks: [...decks, { id: 7 }, null, "x"] } }) });
     expect(await live(url).list({ limit: 2, cursor: "abc" })).toEqual({ decks, nextCursor: "next" });
     await expect(live(url).list()).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
+    await expect(live(url).list({ limit: 3 })).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
   });
 
   test("a deck id that is not valid never leaves the process", async () => {

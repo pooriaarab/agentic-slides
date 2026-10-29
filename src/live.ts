@@ -258,7 +258,11 @@ export function createLiveService(options: LiveOptions): Operations {
       if (!response.ok) throw await refusal(response, "the server refused the request");
       const sent = (await response.json().catch(() => undefined)) as { decks?: unknown; nextCursor?: unknown } | undefined;
       if (!Array.isArray(sent?.decks)) return fail("LIVE_UNAVAILABLE", "the server sent a list that this client does not know");
-      return { decks: sent.decks as DeckSummary[], nextCursor: typeof sent.nextCursor === "string" ? sent.nextCursor : undefined };
+      const decks = sent.decks.filter(
+        (d): d is DeckSummary => typeof d?.id === "string" && typeof d.title === "string" && typeof d.savedAt === "number" && Number.isFinite(d.savedAt) && typeof d.machineMade === "boolean",
+      );
+      if (decks.length !== sent.decks.length) return fail("LIVE_UNAVAILABLE", "the server sent a list that this client does not know");
+      return { decks, nextCursor: typeof sent.nextCursor === "string" ? sent.nextCursor : undefined };
     },
     outline: (id): Promise<DeckOutline> => read(id, (deck) => deck.outline()),
     async addSlides(id, input) {
