@@ -12,7 +12,7 @@
 
 - Files: `dist/ui/app.js`. It bundles React, React DOM, Scheduler, Yjs, y-protocols, lib0, agentic-realtime, and
   agentic-design, and the packages that agentic-design bundles. The list comes from the build (`scripts/build-ui.mjs`).
-- License: MIT for each of them. The full texts are in `dist/ui/licenses/THIRD_PARTY_LICENSES.md`.
+- License: MIT, except tslib, which is 0BSD. The full texts are in `dist/ui/licenses/THIRD_PARTY_LICENSES.md`.
 
 ## Noto Sans
 
