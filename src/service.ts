@@ -153,6 +153,7 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
         try {
           const before = deck.outline();
           deck.applyUpdate(update);
+          deck.checkShape();
           const after = deck.outline();
           checkDeckState(after);
           checkDeckSize(after, limits);

@@ -267,7 +267,7 @@ describe("a checkpoint holds every element to the rules of an edit", () => {
     ["a key that no element has", (e: Y.Map<unknown>) => e.set("evil", "<script>"), "BAD_PATCH"],
     ["a color that is not a token", (e: Y.Map<unknown>) => e.set("color", "#ff0000"), "BAD_PATCH"],
     ["a font size that is not a number", (e: Y.Map<unknown>) => e.set("fontSize", "big"), "BAD_PATCH"],
-    ["a kind that does not exist", (e: Y.Map<unknown>) => e.set("kind", "video"), "BAD_PATCH"],
+    ["a kind that does not exist", (e: Y.Map<unknown>) => (e.delete("text"), e.set("kind", "video")), "BAD_PATCH"],
     ["an element id that is not text", (e: Y.Map<unknown>) => e.set("id", 7), "BAD_PATCH"],
   ])("%s is refused and the stored deck stays as it was", async (_label, change, code) => {
     const { call, service } = setup();
@@ -281,5 +281,32 @@ describe("a checkpoint holds every element to the rules of an edit", () => {
     expect(response.status).toBe(code === "OUT_OF_BOUNDS" ? 422 : 400);
     expect((await json(response)).error.code).toBe(code);
     expect(await service.outline("t")).toEqual(before);
+  });
+});
+
+describe("a checkpoint holds the raw Yjs types to what the Deck class writes", () => {
+  const first = (doc: Y.Doc) => doc.getMap("slides").get(doc.getArray<string>("order").get(0)!) as Y.Map<unknown>;
+  const firstText = (doc: Y.Doc) => ((first(doc).get("elements") as Y.Array<Y.Map<unknown>>).toArray().find((e) => e.get("kind") === "text"))!;
+
+  test.each([
+    ["a title that is an object", (d: Y.Doc) => d.getMap("deck").set("title", { a: 1 })],
+    ["a title that is a number", (d: Y.Doc) => d.getMap("deck").set("title", 5)],
+    ["a title over the length cap", (d: Y.Doc) => d.getMap("deck").set("title", "x".repeat(5000))],
+    ["notes that are plain text", (d: Y.Doc) => first(d).set("notes", "plain")],
+    ["a text element with runs and no text", (d: Y.Doc) => (firstText(d).delete("text"), firstText(d).set("runs", [{ text: "plain" }]))],
+    ["an element that is not a map", (d: Y.Doc) => (first(d).get("elements") as Y.Array<unknown>).push(["junk"])],
+    ["an order that holds a number", (d: Y.Doc) => d.getArray("order").push([7])],
+  ])("%s is refused as INVALID_UPDATE and the stored deck stays as it was", async (_label, change) => {
+    const { call, service } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    const before = await service.outline("t");
+    const deck = Deck.fromUpdate(await service.state("t"));
+    deck.addSlidesFromOutline("# Title\n- point", { author: ada, images: {} });
+    change(deck.doc);
+    const response = await call("POST", "/decks/t/checkpoint", { token: HUMAN, body: deck.encode() });
+    expect(response.status).toBe(400);
+    expect((await json(response)).error.code).toBe("INVALID_UPDATE");
+    expect(await service.outline("t")).toEqual(before);
+    await expect(service.render("t")).resolves.toContain("<html");
   });
 });
