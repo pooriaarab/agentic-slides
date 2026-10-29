@@ -92,8 +92,8 @@ describe("token roles", () => {
 describe("who am I", () => {
   test("says the kind, the name, and the role of the token", async () => {
     const { call } = setup();
-    expect(await json(await call("GET", "/me", { token: AGENT }))).toEqual({ kind: "agent_of_human", name: "bot", role: "editor" });
-    expect(await json(await call("GET", "/me", { token: WATCHER }))).toEqual({ kind: "human", name: "eve", role: "viewer" });
+    expect(await json(await call("GET", "/me", { token: AGENT }))).toEqual({ kind: "agent_of_human", name: "bot", role: "editor", subject: { kind: "agent", id: "agent_of_human_bot" } });
+    expect(await json(await call("GET", "/me", { token: WATCHER }))).toEqual({ kind: "human", name: "eve", role: "viewer", subject: { kind: "human", id: "eve" } });
     expect((await call("GET", "/me")).status).toBe(401);
   });
 });

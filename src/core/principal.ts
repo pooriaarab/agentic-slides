@@ -34,7 +34,8 @@ export type SlidesErrorCode =
   | "STORE_BUSY"
   | "FORBIDDEN"
   | "INVALID_UPDATE"
-  | "LIVE_UNAVAILABLE";
+  | "LIVE_UNAVAILABLE"
+  | "INVALID_SHARE";
 
 export interface Issue {
   code: SlidesErrorCode;

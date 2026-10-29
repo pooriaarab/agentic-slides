@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 // End to end: the Worker under `wrangler dev` (workerd), driven over HTTP.
 const HUMAN = "human-token-0123456789-abcdefghij";
 const AGENT = "agent-token-0123456789-abcdefghij";
+const ROBOT = "robot-token-0123456789-abcdefghij";
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 let workers: { server: ChildProcess; base: string }[] = [];
 let base = "";
@@ -31,6 +32,12 @@ async function call(method: string, path: string, options: { token?: string; bod
   });
 }
 const json = async (response: Response) => (await response.json()) as Record<string, any>;
+// The agent owns what it makes. It lets the person edit, so both tokens can work on the deck.
+async function make(id: string, title: string) {
+  const made = await call("POST", "/decks", { token: AGENT, body: { title, id } });
+  const shared = await call("POST", `/decks/${id}/grants`, { token: AGENT, body: { subjectKind: "human", subjectId: "ada", role: "editor" } });
+  return made.status === 201 && shared.status === 200 ? made : shared;
+}
 
 // The persist directory holds the local D1 database and R2 bucket. A restart on the same directory sees the same data.
 async function start(attempts = 3): Promise<string> {
@@ -39,7 +46,7 @@ async function start(attempts = 3): Promise<string> {
   let log = "";
   const server = spawn(
     "npx",
-    ["wrangler", "dev", "--port", String(port), "--ip", "127.0.0.1", "--inspector-port", String(port + 100), "--persist-to", persist, "--var", "SLIDES_REGION:unknown", "--var", `SLIDES_TOKENS:${HUMAN}=human:ada,${AGENT}=agent_of_human:bot`],
+    ["wrangler", "dev", "--port", String(port), "--ip", "127.0.0.1", "--inspector-port", String(port + 100), "--persist-to", persist, "--var", "SLIDES_REGION:unknown", "--var", `SLIDES_TOKENS:${HUMAN}=human:ada,${AGENT}=agent_of_human:bot,${ROBOT}=agent:robot`],
     { env: { ...process.env, WRANGLER_SEND_METRICS: "false", HOME: home, XDG_CONFIG_HOME: home, CI: "1" }, detached: true },
   );
   workers.push({ server, base: url });
@@ -85,7 +92,7 @@ describe("slides Worker API", () => {
   });
 
   test("builds, edits, renders, and exports a deck", async () => {
-    expect((await call("POST", "/decks", { token: AGENT, body: { title: "Launch plan", id: "plan" } })).status).toBe(201);
+    expect((await make("plan", "Launch plan")).status).toBe(201);
     const added = await call("POST", "/decks/plan/slides", {
       token: AGENT,
       body: { outline: "# Launch\n- **Ship** it\n> hello\n---\n# Pic\n![A cat](cat.png)\n---\n# Facts\n|a|b|\n|1|2|", images: { "cat.png": PNG } },
@@ -130,7 +137,7 @@ describe("slides Worker API", () => {
   });
 
   test("a bad outline is a 422 with every issue, and the deck does not change", async () => {
-    await call("POST", "/decks", { token: AGENT, body: { title: "Bad", id: "bad" } });
+    await make("bad", "Bad");
     const before = JSON.stringify(await json(await call("GET", "/decks/bad", { token: HUMAN })));
     const response = await call("POST", "/decks/bad/slides", {
       token: AGENT,
@@ -146,7 +153,7 @@ describe("slides Worker API", () => {
   });
 
   test("decks and images live in D1 and R2: concurrent edits add up, and a restart sees them", async () => {
-    await call("POST", "/decks", { token: AGENT, body: { title: "Shared", id: "shared" } });
+    await make("shared", "Shared");
     const added = await call("POST", "/decks/shared/slides", { token: AGENT, body: { outline: "# Pic\n![A cat](cat.png)", images: { "cat.png": PNG } } });
     expect(added.status).toBe(201);
     // One Worker serves the whole test. Two workerd processes on one local D1 file can fail with a SQLite lock error that real D1 does not raise.
@@ -159,5 +166,28 @@ describe("slides Worker API", () => {
     expect(outline.slides[0]).toMatchObject({ createdBy: { kind: "agent_of_human", name: "bot" }, machineMade: true });
     const html = await (await call("GET", "/decks/shared/render", { token: HUMAN })).text();
     expect(html).toContain("data:image/png;base64,");
+  }, 180_000);
+
+  test("roles, invites, and links live in D1, and a restart keeps them", async () => {
+    // The person makes a deck. The agent has no role yet, so it sees no deck.
+    expect((await call("POST", "/decks", { token: HUMAN, body: { title: "Private", id: "private" } })).status).toBe(201);
+    expect((await call("GET", "/decks/private", { token: ROBOT })).status).toBe(404);
+    const invite = await json(await call("POST", "/decks/private/invites", { token: HUMAN, body: { role: "viewer", handle: "robot" } }));
+    // A delegated token has the name of an agent, but not its identity: it cannot accept.
+    expect((await call("POST", "/invites/accept", { token: AGENT, body: { id: invite.id } })).status).toBe(403);
+    expect((await call("POST", "/invites/accept", { token: ROBOT, body: { id: invite.id } })).status).toBe(200);
+    expect((await call("GET", "/decks/private", { token: ROBOT })).status).toBe(200);
+    expect((await call("POST", "/decks/private/slides", { token: ROBOT, body: { outline: "# No" } })).status).toBe(403);
+    const link = await json(await call("POST", "/decks/private/links", { token: HUMAN, body: { role: "viewer" } }));
+    for (const worker of workers.splice(0)) await stop(worker);
+    base = await start();
+    const visit = (token: string) => fetch(`${base}/api/v1/slides/shared/private`, { headers: { "x-link-token": token } });
+    expect((await visit(link.token)).status).toBe(200);
+    expect((await call("GET", "/decks/private", { token: ROBOT })).status).toBe(200);
+    expect((await call("DELETE", `/decks/private/links/${link.id}`, { token: HUMAN })).status).toBe(200);
+    expect((await visit(link.token)).status).toBe(404);
+    expect((await call("DELETE", "/decks/private/grants?subjectKind=agent&subjectId=robot", { token: HUMAN })).status).toBe(200);
+    expect((await call("GET", "/decks/private", { token: ROBOT })).status).toBe(404);
+    expect((await call("GET", "/decks/private/access", { token: ROBOT })).status).toBe(404);
   }, 180_000);
 });

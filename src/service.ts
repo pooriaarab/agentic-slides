@@ -34,6 +34,10 @@ export const MAX_LIVE_BYTES = 1_572_864;
 export const MAX_LISTED = 200;
 const DEFAULT_LISTED = 50;
 
+/** The list cursor that stands after a deck of the list: base64url of `[savedAt, id]`, as the store makes it. */
+export const deckCursor = (deck: Pick<DeckSummary, "id" | "savedAt">): string =>
+  toBase64(new TextEncoder().encode(JSON.stringify([deck.savedAt, deck.id]))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
 /** The list cursor is base64url of `[savedAt, id]`. Check the types here, so a forged one is a client error before any query. */
 function validCursor(cursor: string): boolean {
   try {

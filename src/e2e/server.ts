@@ -64,3 +64,18 @@ export async function worker(tokens: string): Promise<Server> {
     },
   };
 }
+
+const SUBJECTS = { ada: { kind: "human", id: "ada" }, bot: { kind: "agent", id: "agent_of_human_bot" }, eve: { kind: "human", id: "eve" } } as const;
+
+/** Lets the other test callers use a deck that `owner` made: the person and the agent edit it, and the viewer reads it. */
+export async function shareAll(url: string, token: string, deck: string, owner: keyof typeof SUBJECTS): Promise<void> {
+  for (const [name, subject] of Object.entries(SUBJECTS)) {
+    if (name === owner) continue;
+    const response = await fetch(`${url}/api/v1/slides/decks/${deck}/grants`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ subjectKind: subject.kind, subjectId: subject.id, role: name === "eve" ? "viewer" : "editor" }),
+    });
+    if (!response.ok) throw new Error(`share failed: ${response.status} ${await response.text()}`);
+  }
+}

@@ -2,6 +2,7 @@ import { parseRegion, type Region } from "agentic-identity";
 import type { Realtime } from "agentic-realtime";
 import { createR2Blobs, createD1Store, D1_SCHEMA, type D1Like, type R2Like } from "agentic-identity/cloudflare";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import { subjectOf } from "./access.js";
 import { createApp } from "./api.js";
 import { ConfigError, parseTokens, tokenAuth, type Authenticator } from "./auth.js";
 import type { Principal } from "./core/principal.js";
@@ -28,6 +29,8 @@ export type LiveFactory = (env: never, region: Region) => Realtime;
 function tokensOf(config: string | undefined): { auth: Authenticator; principals: Principal[] } {
   try {
     const tokens = parseTokens(config);
+    // Sharing keeps roles by a subject id of 1 to 128 of A-Z a-z 0-9 _ -. A name outside that could hold no role, so the setting is refused.
+    if (tokens.some(([, caller]) => subjectOf(caller) === null)) throw new ConfigError("a token name needs 1 to 128 of A-Z a-z 0-9 _ -, and an agent name cannot start with a delegated kind and an underscore");
     // A viewer's token cannot write, so its name is no trusted label.
     return { auth: tokenAuth(tokens), principals: tokens.filter(([, caller]) => caller.role === "editor").map(([, caller]) => caller.author) };
   } catch (error) {
@@ -71,13 +74,14 @@ export function createWorker(options: WorkerOptions = {}) {
   function appFor(db: D1Like, images: R2Like, config: string | undefined, region: string | undefined) {
     if (cached?.db !== db || cached.images !== images || cached.config !== config || cached.region !== region) {
       const declared = parseRegion(region ?? "eu");
+      const store = createD1Store(db, { region: declared });
       const service = createService({
-        store: createD1Store(db, { region: declared }),
+        store,
         blobs: createR2Blobs(images, { region: declared, urlBase: "https://slides.invalid/blob", urlSecret: (urlSecret ??= bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(32)))) }),
       });
       const live = options.live;
       const { auth, principals } = tokensOf(config);
-      cached = { db, images, config, region, app: createApp({ service, auth, principals, live: live && ((env) => live(env as never, declared)) }) };
+      cached = { db, images, config, region, app: createApp({ service, auth, principals, store, live: live && ((env) => live(env as never, declared)) }) };
     }
     return cached.app;
   }
