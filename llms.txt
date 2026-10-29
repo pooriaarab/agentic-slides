@@ -7,7 +7,7 @@ Status: early. Deck library, render, CLI, MCP server, and PDF export.
 - SDK: import { Deck } from "agentic-slides".
 - CLI: agentic-slides new "Talk" --as human:ada, then add, outline, edit, render, export.
 - MCP: run agentic-slides mcp.
-- HTTP: a Worker under /api/v1/slides with bearer tokens.
+- HTTP: a Worker under /api/v1/slides with bearer tokens, and a live room for each deck.
 
 ## Docs
 

@@ -1,8 +1,18 @@
 import { sha256 } from "@noble/hashes/sha2.js";
+import type { Role } from "agentic-identity";
 import { checkAuthor, parsePrincipal, type Principal } from "./core/principal.js";
 
+/** What a token may do. An editor reads and writes. A viewer only reads, over HTTP and in a live room. */
+export type SlidesRole = Extract<Role, "editor" | "viewer">;
+
+/** Who a request comes from, and what that caller may do. */
+export interface Caller {
+  author: Principal;
+  role: SlidesRole;
+}
+
 /** Names the caller of a request, or returns null. Replace it with the agentic-identity `Auth` port when that ships. */
-export type Authenticator = (request: Request) => Promise<Principal | null>;
+export type Authenticator = (request: Request) => Promise<Caller | null>;
 
 /** The token setting is unusable. The message never holds a token. */
 export class ConfigError extends Error {}
@@ -15,9 +25,9 @@ function same(a: Uint8Array, b: Uint8Array): boolean {
   return difference === 0;
 }
 
-/** Read `token=kind:name,token=kind:name`. Each token needs 32 or more characters. */
-export function parseTokens(config: string | undefined): [Uint8Array, Principal][] {
-  const entries: [Uint8Array, Principal][] = [];
+/** Read `token=kind:name,token=kind:name;viewer`. Each token needs 32 or more characters. The role is `editor` (the default) or `viewer`. */
+export function parseTokens(config: string | undefined): [Uint8Array, Caller][] {
+  const entries: [Uint8Array, Caller][] = [];
   const seen = new Set<string>();
   for (const part of (config ?? "").split(",").filter((p) => p.trim() !== "")) {
     const cut = part.indexOf("=");
@@ -26,22 +36,26 @@ export function parseTokens(config: string | undefined): [Uint8Array, Principal]
     if (seen.has(token)) throw new ConfigError("two entries share a token");
     seen.add(token);
     try {
-      entries.push([digest(token), checkAuthor(parsePrincipal(part.slice(cut + 1).trim()))]);
+      const value = part.slice(cut + 1).trim();
+      const semi = value.lastIndexOf(";");
+      const role = semi < 0 ? "editor" : value.slice(semi + 1);
+      if (role !== "editor" && role !== "viewer") throw new ConfigError("a role is editor or viewer");
+      entries.push([digest(token), { author: checkAuthor(parsePrincipal(semi < 0 ? value : value.slice(0, semi))), role }]);
     } catch {
-      throw new ConfigError("a token needs a principal as <kind>:<name>");
+      throw new ConfigError("a token needs a principal as <kind>:<name>, and a role of editor or viewer after a semicolon");
     }
   }
   return entries;
 }
 
 /** Bearer tokens. With no token configured, every request is refused. */
-export function tokenAuth(tokens: [Uint8Array, Principal][]): Authenticator {
+export function tokenAuth(tokens: [Uint8Array, Caller][]): Authenticator {
   return async (request) => {
     const given = /^bearer (\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1];
     if (given === undefined) return null;
     const hash = digest(given);
-    let found: Principal | null = null;
-    for (const [expected, principal] of tokens) if (same(expected, hash)) found = principal;
+    let found: Caller | null = null;
+    for (const [expected, caller] of tokens) if (same(expected, hash)) found = caller;
     return found;
   };
 }

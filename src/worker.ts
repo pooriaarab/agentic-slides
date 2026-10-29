@@ -1,4 +1,5 @@
-import { parseRegion } from "agentic-identity";
+import { parseRegion, type Region } from "agentic-identity";
+import type { Realtime } from "agentic-realtime";
 import { createR2Blobs, createD1Store, D1_SCHEMA, type D1Like, type R2Like } from "agentic-identity/cloudflare";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { createApp } from "./api.js";
@@ -15,6 +16,9 @@ export interface WorkerEnv {
   /** The region both adapters declare. It is "eu" unless this says otherwise. "unknown" is for local runs, where D1 does not report a region. */
   SLIDES_REGION?: string;
 }
+
+/** Makes the live room server for a Worker. The region is the claim that D1 and R2 already use. */
+export type LiveFactory = (env: never, region: Region) => Realtime;
 
 // Both resources are declared in wrangler.jsonc as EU resources, so the adapters claim "eu" by default.
 // With "eu" the D1 adapter refuses any query that D1 did not report as served in the EU.
@@ -48,36 +52,47 @@ async function ensureSchema(db: D1Like): Promise<void> {
 // A random secret per isolate (made on first use, as a Worker may not draw random bytes at load) satisfies the adapter and signs nothing that outlives the isolate.
 let urlSecret: string | undefined;
 
-let cached: { db: D1Like; images: R2Like; config: string | undefined; region: string | undefined; app: ReturnType<typeof createApp> } | undefined;
-
-function appFor(db: D1Like, images: R2Like, config: string | undefined, region: string | undefined) {
-  if (cached?.db !== db || cached.images !== images || cached.config !== config || cached.region !== region) {
-    const declared = parseRegion(region ?? "eu");
-    const service = createService({
-      store: createD1Store(db, { region: declared }),
-      blobs: createR2Blobs(images, { region: declared, urlBase: "https://slides.invalid/blob", urlSecret: (urlSecret ??= bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(32)))) }),
-    });
-    cached = { db, images, config, region, app: createApp({ service, auth: authenticator(config) }) };
-  }
-  return cached.app;
+export interface WorkerOptions {
+  /** Hosts a live room for each deck. Without it, the room route answers 404. */
+  live?: LiveFactory;
 }
 
-export default {
-  async fetch(request: Request, env: WorkerEnv): Promise<Response> {
-    const missing = env.DB ? (env.IMAGES ? undefined : "bind an R2 bucket as IMAGES") : "bind a D1 database as DB";
-    if (missing || !env.DB || !env.IMAGES) {
-      return Response.json({ error: { code: "MISCONFIGURED", message: missing } }, { status: 500 });
+/** The Worker. `live-worker.ts` adds live rooms, because the Durable Object code cannot load outside a Worker. */
+export function createWorker(options: WorkerOptions = {}) {
+  let cached: { db: D1Like; images: R2Like; config: string | undefined; region: string | undefined; app: ReturnType<typeof createApp> } | undefined;
+
+  function appFor(db: D1Like, images: R2Like, config: string | undefined, region: string | undefined) {
+    if (cached?.db !== db || cached.images !== images || cached.config !== config || cached.region !== region) {
+      const declared = parseRegion(region ?? "eu");
+      const service = createService({
+        store: createD1Store(db, { region: declared }),
+        blobs: createR2Blobs(images, { region: declared, urlBase: "https://slides.invalid/blob", urlSecret: (urlSecret ??= bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(32)))) }),
+      });
+      const live = options.live;
+      cached = { db, images, config, region, app: createApp({ service, auth: authenticator(config), live: live && ((env) => live(env as never, declared)) }) };
     }
-    try {
-      parseRegion(env.SLIDES_REGION ?? "eu");
-    } catch {
-      return Response.json({ error: { code: "MISCONFIGURED", message: 'SLIDES_REGION must be "eu", "us", or "unknown"' } }, { status: 500 });
-    }
-    try {
-      await ensureSchema(env.DB);
-    } catch {
-      return Response.json({ error: { code: "UNAVAILABLE", message: "the database is not ready. Try again" } }, { status: 503 });
-    }
-    return appFor(env.DB, env.IMAGES, env.SLIDES_TOKENS, env.SLIDES_REGION).fetch(request);
-  },
-};
+    return cached.app;
+  }
+
+  return {
+    async fetch(request: Request, env: WorkerEnv, ctx?: unknown): Promise<Response> {
+      const missing = env.DB ? (env.IMAGES ? undefined : "bind an R2 bucket as IMAGES") : "bind a D1 database as DB";
+      if (missing || !env.DB || !env.IMAGES) {
+        return Response.json({ error: { code: "MISCONFIGURED", message: missing } }, { status: 500 });
+      }
+      try {
+        parseRegion(env.SLIDES_REGION ?? "eu");
+      } catch {
+        return Response.json({ error: { code: "MISCONFIGURED", message: 'SLIDES_REGION must be "eu", "us", or "unknown"' } }, { status: 500 });
+      }
+      try {
+        await ensureSchema(env.DB);
+      } catch {
+        return Response.json({ error: { code: "UNAVAILABLE", message: "the database is not ready. Try again" } }, { status: 503 });
+      }
+      return appFor(env.DB, env.IMAGES, env.SLIDES_TOKENS, env.SLIDES_REGION).fetch(request, env, ctx as never);
+    },
+  };
+}
+
+export default createWorker();

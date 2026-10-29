@@ -4,7 +4,8 @@ import { fromBase64, toBase64 } from "./bytes.js";
 import { Deck, type DeckOutline, type ElementPatch } from "./core/deck.js";
 import { isLayout, LAYOUT_NAMES, type LayoutName } from "./core/layouts.js";
 import { checkImageSrc, isBlobRef } from "./core/model.js";
-import { fail, type Principal } from "./core/principal.js";
+import { checkAuthors, checkDeckState } from "./core/verify.js";
+import { SlidesError, fail, type Principal } from "./core/principal.js";
 import { DEFAULT_LIMITS, checkDeckSize, tooManyPixels, type Limits } from "./export/limits.js";
 import { renderPdf } from "./export/pdf.js";
 import { StoreConflictError, type Blobs, type Store, type StoreOps } from "agentic-identity";
@@ -23,6 +24,9 @@ function sniff(data: Uint8Array): string {
   if (data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return "image/jpeg";
   return fail("UNSUPPORTED_IMAGE", "images must be PNG or JPEG files");
 }
+
+/** The most bytes of deck state that a live room takes or a checkpoint saves. The room itself stops at 1.5 MiB. */
+export const MAX_LIVE_BYTES = 1_572_864;
 
 export interface Ports {
   store: Store;
@@ -125,6 +129,43 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
 
     async outline(id: string): Promise<DeckOutline> {
       return (await load(id)).outline();
+    },
+
+    /** Fails with NO_DECK when there is no deck. Cheaper than `state`. */
+    async exists(id: string): Promise<void> {
+      checkId(id);
+      if (!(await store.get(COLLECTION, id))) fail("NO_DECK", `no deck "${id}"`);
+    },
+
+    /** The stored deck as a Yjs update. A live room starts from it. */
+    async state(id: string): Promise<Uint8Array> {
+      return (await load(id)).encode();
+    },
+
+    /**
+     * Merge the state of a live room into the stored deck. The update is checked on a copy first, so a
+     * bad one writes nothing. A deck that does not exist is never made here. Each change must carry a label
+     * from `allowed`: the caller, and the people and agents that the room saw send an update.
+     */
+    async checkpoint(id: string, update: Uint8Array, allowed: Principal[]): Promise<void> {
+      if (update.length === 0 || update.length > MAX_LIVE_BYTES) fail(update.length === 0 ? "INVALID_UPDATE" : "TOO_LARGE", `a checkpoint is from 1 to ${MAX_LIVE_BYTES} bytes`);
+      await mutate(id, (deck) => {
+        try {
+          const before = deck.outline();
+          deck.applyUpdate(update);
+          deck.pruneOrphans();
+          deck.checkShape();
+          const after = deck.outline();
+          checkDeckState(after);
+          checkDeckSize(after, limits);
+          checkAuthors(before, after, allowed);
+          // The cap is on the merged state: each update is small, and many of them would pass it.
+          if (deck.encode().length > MAX_LIVE_BYTES) fail("TOO_LARGE", `the deck is over ${MAX_LIVE_BYTES} bytes, the most a live room takes`);
+        } catch (error) {
+          if (error instanceof SlidesError) throw error;
+          return fail("INVALID_UPDATE", "the update is not a deck state");
+        }
+      });
     },
 
     /** Add slides from an outline, or one empty slide of a layout. */

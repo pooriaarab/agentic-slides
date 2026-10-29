@@ -18,6 +18,7 @@ and speaker notes. All positions use one 1280 by 720 space.
 - `src/store/file.ts`: the file adapters for the `Store` and `Blobs` ports of `agentic-identity`. Do not add a local port.
 - `src/export/pdf.ts`: PDF export without a browser.
 - `src/cli.ts`, `src/mcp.ts`, `src/api.ts`, `src/worker.ts`: the faces. Keep them thin.
+- `src/live-worker.ts`: the Worker with live rooms (Durable Objects from `agentic-realtime`). Only this file imports the Durable Object code, so `worker.ts` still loads in Node tests.
 - `src/auth.ts`: bearer tokens. A token names the author. The default is closed.
 - Code that the Worker loads must not import Node modules, except what `agentic-identity` needs (`nodejs_compat` is on).
 - `src/e2e/`: tests that run the built CLI and MCP server. Run `npm run build` first.

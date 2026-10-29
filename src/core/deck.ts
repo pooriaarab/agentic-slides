@@ -72,6 +72,7 @@ const PATCH_KEYS = {
   table: ["rows"],
 } as const;
 const BOX_KEYS = ["x", "y", "w", "h"] as const;
+const MAX_TITLE_CHARS = 1000;
 
 type YMap = Y.Map<unknown>;
 
@@ -349,6 +350,35 @@ export class Deck {
       element.set("editedBy", who);
       slide.set("editedBy", who);
     });
+  }
+
+  /** Delete the slides that `order` does not hold. No reader sees them, and no operation can remove them. */
+  pruneOrphans(): void {
+    const held = new Set(this.order.toArray());
+    this.doc.transact(() => {
+      for (const id of [...this.slides.keys()]) if (!held.has(id)) this.slides.delete(id);
+    });
+  }
+
+  /**
+   * Check the raw Yjs types, which `outline` reads with no check. A client can write any Yjs value, and the
+   * Deck class never writes these: so a deck that fails here came from outside, and no reader can use it.
+   */
+  checkShape(): void {
+    const bad = (what: string): never => fail("INVALID_UPDATE", `the deck state is not valid: ${what}`);
+    const title = this.meta.get("title");
+    if (title !== undefined && (typeof title !== "string" || title.length > MAX_TITLE_CHARS)) bad("the title must be text of up to 1000 characters");
+    if (!this.order.toArray().every((id) => typeof id === "string")) bad("the order holds an id that is not text");
+    for (const [id, slide] of this.slides) {
+      if (!(slide instanceof Y.Map) || !(slide.get("notes") instanceof Y.Text) || !(slide.get("elements") instanceof Y.Array)) bad(`slide "${id}" is not made as the Deck class makes one`);
+      for (const element of (slide.get("elements") as Y.Array<unknown>).toArray()) {
+        if (!(element instanceof Y.Map)) bad(`slide "${id}" holds an element that is not a map`);
+        const text = (element as YMap).get("text");
+        if ((element as YMap).get("kind") === "text" ? !(text instanceof Y.Text) : text !== undefined) bad(`slide "${id}" holds an element with a text field of the wrong type`);
+        if (typeof (element as YMap).get("id") !== "string") bad(`slide "${id}" holds an element with an id that is not text`);
+        if ((element as YMap).has("runs")) bad(`slide "${id}" holds an element with a stored "runs" field`);
+      }
+    }
   }
 
   outline(): DeckOutline {
