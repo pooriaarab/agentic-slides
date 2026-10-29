@@ -212,7 +212,7 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
       await share(command, createClient({ baseUrl: live.server, token: live.token }), { deck, values, positionals, need, number });
       return 0;
     }
-    const service = live ? createLiveService(live) : createService({ store: createFileStore(dir), blobs: createFileBlobs(join(dir, "blobs")) });
+    const service = live ? createLiveService(live) : createService({ store: createFileStore(dir), blobs: createFileBlobs(dir) });
     const print = (value: unknown) => console.log(JSON.stringify(value));
     switch (command) {
       case "new":

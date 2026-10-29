@@ -3,17 +3,21 @@
 //  2. A failed edit leaves a blob that no deck uses.
 //  3. A transaction that runs again writes a blob twice, or fails on the second run.
 //  4. A restart loses a committed edit, or brings back one that rolled back.
-import { mkdtempSync, readdirSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMemoryBlobs, createMemoryStore } from "agentic-identity";
 import { runBlobsContract, runStoreContract } from "agentic-identity/testing";
 import { describe, expect, test } from "vitest";
+import { SlidesError } from "../core/principal.js";
 import { createService } from "../service.js";
 import { createFileBlobs, createFileStore } from "./file.js";
 
 const PNG = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"));
 const author = { kind: "agent" as const, name: "bot" };
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const fresh = () => mkdtempSync(join(tmpdir(), "slides-store-"));
 
 const shared = new Map<string, string>();
@@ -76,4 +80,67 @@ describe("the file store", () => {
     expect(await stores[0]!.get("decks", "same")).toMatchObject({ n: expect.any(Number) });
     expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
+});
+
+describe("the file adapters on a folder of version 0.8.0", () => {
+  test("a store file in the old shape opens and keeps its docs", async () => {
+    const dir = fresh();
+    writeFileSync(join(dir, "store.json"), JSON.stringify({ clock: 2, tables: { decks: { a: { v: 1, doc: { n: 1 } }, b: { v: 2, doc: { n: 2 } } } } }));
+    const store = createFileStore(dir);
+    expect(await store.get("decks", "a")).toEqual({ n: 1 });
+    await store.put("decks", "c", { n: 3 });
+    const again = createFileStore(dir);
+    expect(await again.get("decks", "b")).toEqual({ n: 2 });
+    expect(await again.get("decks", "c")).toEqual({ n: 3 });
+    expect(JSON.parse(readFileSync(join(dir, "store.json"), "utf8")).format).toBe(1);
+  });
+
+  test("a blob in the old layout is found under its key, with its type", async () => {
+    const dir = fresh();
+    const key = `sha256-${createHash("sha256").update(PNG).digest("hex")}`;
+    const old = join(dir, "blobs", createHash("sha256").update(key).digest("hex"));
+    mkdirSync(join(dir, "blobs"));
+    writeFileSync(old, PNG);
+    writeFileSync(`${old}.type`, "image/png");
+    const blobs = createFileBlobs(dir);
+    expect((await blobs.head(key))?.contentType).toBe("image/png");
+    expect(Array.from((await blobs.get(key))!.data)).toEqual(Array.from(PNG));
+    expect(readdirSync(join(dir, "blobs")).filter((name) => !name.endsWith(".blob"))).toEqual([]);
+  });
+});
+
+describe("the file store lock", () => {
+  async function withLock(age: number, waitMs?: number) {
+    const dir = fresh();
+    const service = createService({ store: createFileStore(dir, { waitMs }), blobs: createFileBlobs(dir) });
+    await service.create({ title: "Locked", author, id: "locked" });
+    const lock = join(dir, "store.json.lock");
+    writeFileSync(lock, "someone else");
+    const when = new Date(Date.now() - age);
+    utimesSync(lock, when, when);
+    return { service, dir };
+  }
+
+  test("a lock that a dead process left behind is taken over", async () => {
+    const { service } = await withLock(10 * 60_000);
+    await service.addSlides("locked", { outline: "# Ok", author });
+    expect((await service.outline("locked")).slides).toHaveLength(1);
+  });
+
+  test("a lock that its owner keeps alive makes the edit fail with STORE_BUSY and change nothing", async () => {
+    const { service, dir } = await withLock(10 * 60_000, 300);
+    const lock = join(dir, "store.json.lock");
+    // A second process renews the lock, as a live writer does, for longer than the adapter waits.
+    const holder = spawn(process.execPath, ["-e", `const fs=require("fs");const end=Date.now()+9000;const t=setInterval(()=>{const n=new Date();fs.writeFileSync(process.argv[1],"live");fs.utimesSync(process.argv[1],n,n);if(Date.now()>end){clearInterval(t);fs.unlinkSync(process.argv[1])}},200)`, lock], { stdio: "ignore" });
+    try {
+      await sleep(600);
+      const error = await service.addSlides("locked", { outline: "# No", author }).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(SlidesError);
+      expect((error as SlidesError).code).toBe("STORE_BUSY");
+    } finally {
+      holder.kill();
+      rmSync(lock, { force: true });
+    }
+    expect((await service.outline("locked")).slides).toHaveLength(0);
+  }, 30_000);
 });
