@@ -1,9 +1,12 @@
-import { createMemoryBlobs, createMemoryStore } from "agentic-identity";
+import { createMemoryBlobs, createMemoryStore, parsePrincipal } from "agentic-identity";
 import { describe, expect, test } from "vitest";
 import worker from "./worker.js";
 import { createApp } from "./api.js";
 import { parseTokens, tokenAuth } from "./auth.js";
 import { createService } from "./service.js";
+
+/** As `agentic-realtime` does: a room takes only an id of the `agentic-identity` rule, so a `<kind>:<name>` id throws here. */
+const roomId = (id: string) => (parsePrincipal({ kind: id.split(".")[0], id }), id);
 
 // Roles on decks, over the real app and a memory store. Each caller has its own token.
 const ADA = "ada-token-0123456789-abcdefghijklmn";
@@ -15,15 +18,15 @@ const VIEW = "view-token-0123456789-abcdefghijklm";
 const TOKENS = `${ADA}=human:ada,${BOB}=human:bob,${BOT}=agent:bot,${EVE}=agent_of_human:eve,${VIEW}=human:vic;viewer,${CLASH}=agent:agent_of_human_eve`;
 const BASE = "http://slides.test/api/v1/slides";
 
-function setup() {
+function setup(options: { failRevoke?: string } = {}) {
   const store = createMemoryStore();
   const service = createService({ store, blobs: createMemoryBlobs() });
   // A room stub that records what the routes tell it.
   const room: string[] = [];
   const live = {
-    connect: async (id: string, _request: Request, grant: { principal: { id: string }; role: string }) => (room.push(`connect ${id} ${grant.principal.id} ${grant.role}`), new Response("joined", { status: 200 })),
-    revoke: async (id: string, who: string) => (room.push(`revoke ${id} ${who}`), { closed: 0, stored: true }),
-    updateRole: async (id: string, who: string, role: string | null) => (room.push(`role ${id} ${who} ${role}`), true),
+    connect: async (id: string, _request: Request, grant: { principal: { id: string }; role: string }) => (roomId(grant.principal.id), room.push(`connect ${id} ${grant.principal.id} ${grant.role}`), new Response("joined", { status: 200 })),
+    revoke: async (id: string, who: string) => (roomId(who), room.push(`revoke ${id} ${who}`), who === options.failRevoke ? Promise.reject(new Error("room down")) : { closed: 0, stored: true }),
+    updateRole: async (id: string, who: string, role: string | null) => (roomId(who), room.push(`role ${id} ${who} ${role}`), true),
     erase: async (id: string) => (room.push(`erase ${id}`), { sockets: 0 }),
     meta: async () => ({ updates: 0, compactions: 0, contributors: [] }),
   };
@@ -313,13 +316,25 @@ describe("review fixes", () => {
     await call("DELETE", "/decks/plan/grants?subjectKind=human&subjectId=bob", { token: ADA });
     await call("DELETE", "/decks/plan/grants?subjectKind=agent&subjectId=agent_of_human_eve", { token: ADA });
     expect(room).toEqual([
-      "role plan human:bob viewer",
-      "role plan human:bob null",
-      "role plan agent:agent_of_human_eve viewer",
-      "role plan agent_of_human:eve viewer",
-      "revoke plan human:bob",
-      "revoke plan agent:agent_of_human_eve",
-      "revoke plan agent_of_human:eve",
+      "role plan human.bob viewer",
+      "role plan human.bob null",
+      "role plan agent.agent_of_human_eve viewer",
+      "role plan agent_of_human.eve viewer",
+      "revoke plan human.bob",
+      "revoke plan agent.agent_of_human_eve",
+      "revoke plan agent_of_human.eve",
+    ]);
+  });
+
+  test("a room that fails one revoke still gets the revoke of every other id", async () => {
+    const { call, room } = setup({ failRevoke: "agent.agent_of_human_eve" });
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "agent", subjectId: "agent_of_human_eve", role: "viewer" } });
+    const revoked = await call("DELETE", "/decks/plan/grants?subjectKind=agent&subjectId=agent_of_human_eve", { token: ADA });
+    expect(revoked.status).toBe(500);
+    expect(room.filter((line) => line.startsWith("revoke"))).toEqual([
+      "revoke plan agent.agent_of_human_eve",
+      "revoke plan agent_of_human.eve",
     ]);
   });
 
@@ -331,7 +346,7 @@ describe("review fixes", () => {
       room.length = 0;
       const response = await app.request(`${BASE}/decks/plan/ws`, { headers: { authorization: `Bearer ${BOB}`, upgrade: "websocket" } });
       expect(response.status, role).toBe(200);
-      expect(room, role).toEqual([`connect plan human:bob ${role === "editor" ? "editor" : "viewer"}`]);
+      expect(room, role).toEqual([`connect plan human.bob ${role === "editor" ? "editor" : "viewer"}`]);
     }
     expect((await app.request(`${BASE}/decks/plan/ws`, { headers: { authorization: `Bearer ${EVE}`, upgrade: "websocket" } })).status).toBe(404);
   });
@@ -423,7 +438,7 @@ describe("second review fixes", () => {
     const { id } = (await call("POST", "/decks/plan/invites", { token: ADA, body: { role: "editor", handle: "bot" } })).json;
     room.length = 0;
     expect((await call("POST", "/invites/accept", { token: BOT, body: { id } })).status).toBe(200);
-    expect(room).toEqual(["role plan agent:bot null"]);
+    expect(room).toEqual(["role plan agent.bot null"]);
   });
 
   test("an owner with a viewer token gets 403, not 404, on a route that needs an owner", async () => {
@@ -489,7 +504,7 @@ describe("third review fixes", () => {
     const { id } = (await call("POST", "/decks/plan/invites", { token: ADA, body: { role: "viewer", handle: "bot" } })).json;
     room.length = 0;
     expect((await call("POST", "/invites/accept", { token: BOT, body: { id } })).status).toBe(200);
-    expect(room).toEqual(["role plan agent:bot null"]);
+    expect(room).toEqual(["role plan agent.bot null"]);
     expect((await call("POST", "/decks/plan/slides", { token: BOT, body: OUTLINE })).status).toBe(201);
   });
 
@@ -512,7 +527,7 @@ describe("fourth review fixes", () => {
     await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "agent", subjectId: "bot", role: "viewer" } });
     room.length = 0;
     expect((await call("POST", "/invites/accept", { token: BOT, body: { id } })).status).toBe(200);
-    expect(room).toEqual(["role plan agent:bot viewer"]);
+    expect(room).toEqual(["role plan agent.bot viewer"]);
   });
 
   test("a list that stops at its scan limit puts the cursor after the last deck that it returns", async () => {
