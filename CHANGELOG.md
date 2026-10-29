@@ -4,14 +4,33 @@ This file lists the notable changes to this project, by version.
 
 ## Unreleased
 
+## 0.5.0 - 2026-10-29
+
+### Breaking changes
+
+These changes affect how you deploy the Worker. No HTTP API, SDK, CLI, or MCP call changes.
+
+- Run `npm run build` before `wrangler deploy` or `wrangler dev`. Without `dist/ui`, Wrangler stops with an error
+  that names `assets.directory`.
+- When the Worker config serves `dist/ui`, `GET /` answers with the UI page, not with a JSON 404. A monitor that
+  expects a 404 at `/` now gets the page.
+
 ### Added
 
 - A web UI at `/` on the Worker, built on `agentic-design`: deck list, slide sorter, slide canvas, present
   mode, live presence, and an agent mark on slides that an agent edited. `npm run build` writes it to `dist/ui`.
-- `GET /api/v1/slides/decks` and `client.listDecks()` list the decks, newest edit first, with the last editor of each. They page with a cursor. A deck that nobody edits after this version is not listed until its next edit.
+- `GET /api/v1/slides/decks` and `client.listDecks()` list the decks, newest edit first, with the last editor of each. They page with a cursor. A new or edited deck is listed at once. A deck that nobody edits after you upgrade to 0.5.0 is not listed, but its data is not lost: edit it once to list it. `agentic-slides/client` also exports the `DeckSummary` and `SlideOutline` types.
 - `npm run e2e`: Playwright tests of the UI against `wrangler dev`, an axe WCAG 2.2 AA check of each view
-  in light and dark, and `npm run e2e:screenshots` for the screenshots in `docs/screenshots`. `ci:local` and the CI workflow run them.
+  in light and dark, and `npm run e2e:screenshots` for the screenshots in `docs/screenshots`.
 - The room route accepts the token as the WebSocket subprotocol `bearer.<token>`, for browsers.
+
+### Changed
+
+- `wrangler.jsonc` serves the UI from `./dist/ui` as static assets. See "Breaking changes" for the build step.
+- `npm run build` also bundles the UI. `prepack` runs it, so the npm package has `dist/ui`.
+- The package ships the licenses of the UI fonts and of the code in the UI bundle, in `dist/ui/licenses`.
+- `npm run ci:local` runs the browser tests too (`npm run e2e`). Run `npx playwright install chromium` once first.
+- The CI workflow runs `npm run e2e` after `npm test`.
 
 ## 0.4.0 - 2026-10-29
 

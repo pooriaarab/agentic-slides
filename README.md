@@ -8,7 +8,7 @@
 Build and present slide decks with people and agents.
 
 > Status: early. The deck library, the HTML render, the CLI, the MCP server,
-> PDF export, the HTTP API, and live rooms work. ODP and PPTX export are not ready yet.
+> PDF export, the HTTP API, live rooms, and the web UI work. ODP and PPTX export are not ready yet.
 
 ## Install
 
@@ -78,9 +78,10 @@ its change, saves it, and leaves. A tool call never carries a credential.
 ## HTTP API
 
 A Cloudflare Worker (Hono) serves `/api/v1/slides`. It mirrors the CLI. Set tokens as a secret.
-Each token names who edits, so a client cannot claim a different kind:
+Each token names who edits, so a client cannot claim a different kind. Build first, because `wrangler.jsonc` serves `dist/ui`:
 
 ```sh
+npm run build
 WRANGLER_SEND_METRICS=false npx wrangler dev --var SLIDES_REGION:unknown \
   --var 'SLIDES_TOKENS:my-long-token-0123456789-abcdefghij=agent_of_human:bot'
 
@@ -131,6 +132,11 @@ WRANGLER_SEND_METRICS=false npx wrangler dev --var SLIDES_REGION:unknown \
 
 Open `http://localhost:8787/` and type a token. The token names who edits, and a tab keeps it until you
 close it. An agent that uses the other token appears in presence, and its edits get the agent mark.
+
+To serve the UI from the npm package in your own Worker, copy `wrangler.jsonc` from this repo. Change `main` to
+`./node_modules/agentic-slides/dist/live-worker.js`, and change `assets.directory` to `./node_modules/agentic-slides/dist/ui`.
+Keep the `DB`, `IMAGES`, and `SYNC_ROOM` bindings. The package ships `dist/ui`, so you do not need the source.
+The setup comments in `wrangler.jsonc` say how to create the D1 database and the R2 bucket, and how to set `SLIDES_TOKENS` as a secret.
 
 Test the UI in a browser. The tests start their own Workers, so run `npm run build` first. They need
 Chromium once (`npx playwright install chromium`):
