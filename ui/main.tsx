@@ -62,14 +62,14 @@ function Signed({ token, onSignOut }: { token: string; onSignOut: () => void }) 
   if (!me) return <main className="signin"><p role="status" className="muted"><span className="ad-spinner" aria-hidden="true" /> Signing in…</p></main>;
   const canWrite = me.role === "editor";
 
-  if (route.name === "present") return <Present client={client} id={route.id} start={route.at} />;
+  if (route.name === "present") return <Present key={route.id} client={client} id={route.id} start={route.at} />;
   return (
     <AppShell
       brand="Slides"
       sidebar={<SidebarNav label="Main" items={[{ href: hrefOf({ name: "decks" }), label: "Decks", current: route.name === "decks" }]} />}
       topbar={<><ThemePicker /><span className="muted">{me.name} ({me.role})</span><Button variant="secondary" size="sm" onClick={onSignOut}>Sign out</Button></>}
     >
-      {route.name === "deck" ? <Editor client={client} id={route.id} token={token} canWrite={canWrite} name={me.name} /> : <DeckList client={client} canWrite={canWrite} />}
+      {route.name === "deck" ? <Editor key={route.id} client={client} id={route.id} token={token} canWrite={canWrite} name={me.name} /> : <DeckList client={client} canWrite={canWrite} />}
     </AppShell>
   );
 }

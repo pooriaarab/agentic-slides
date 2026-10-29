@@ -58,7 +58,9 @@
     "test": "vitest run",
     "clean": "rm -rf dist",
     "prepack": "npm run build",
-    "ci:local": "npm run build && npm run typecheck && npm test"
+    "ci:local": "npm run build && npm run typecheck && npm test && npm run e2e",
+    "e2e": "playwright test",
+    "e2e:screenshots": "UPDATE_SCREENSHOTS=1 playwright test"
   },
   "dependencies": {
     "@cantoo/fontkit": "^2.0.12",
@@ -73,6 +75,8 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.64.1",
     "@types/jsdom": "^21.1.7",
     "@types/node": "^22.0.0",
     "@types/react": "^19.3.0",
