@@ -19,19 +19,19 @@ var start=parseInt(location.hash.slice(1),10);show(isNaN(start)?0:start-1);fit()
 export const PRESENT_CSP = cspFor(SCRIPT);
 
 const CHROME_CSS = `
-body{margin:0;background:#111;color:#fff;font:16px system-ui,sans-serif}
+body{margin:0;background:var(--ad-color-present-bg,#111);color:var(--ad-color-present-text,#fff);font:16px system-ui,sans-serif}
 #stage{position:fixed;inset:0 0 56px 0;overflow:hidden}
 #deck{position:absolute;left:50%;top:50%;width:${SLIDE_WIDTH}px;height:${SLIDE_HEIGHT}px;transform-origin:center}
 .slide[hidden]{display:none}
-#notes{position:fixed;left:0;right:0;bottom:56px;height:max(120px,24vh);overflow:auto;box-sizing:border-box;padding:12px 24px;background:#1f2328;border-top:1px solid #6e7681}
+#notes{position:fixed;left:0;right:0;bottom:56px;height:max(120px,24vh);overflow:auto;box-sizing:border-box;padding:12px 24px;background:var(--ad-color-present-surface,#1f2328);border-top:1px solid var(--ad-color-present-border,#6e7681)}
 #notes[hidden]{display:none}
 #notes h2{margin:0 0 8px;font-size:16px}#notes-text{white-space:pre-wrap;font-size:20px}
 body.with-notes #stage{bottom:calc(56px + max(120px,24vh))}
-.controls{position:fixed;left:0;right:0;bottom:0;height:56px;display:flex;align-items:center;justify-content:center;gap:16px;background:#000}
-.controls button{min-width:44px;min-height:44px;font:inherit;color:#fff;background:#30363d;border:1px solid #8b949e;border-radius:6px;cursor:pointer}
-.controls button[aria-pressed="true"]{background:#0b5cad}
-button:focus-visible{outline:3px solid #ffbf47;outline-offset:2px}
-#origin{color:#ffd479}`;
+.controls{position:fixed;left:0;right:0;bottom:0;height:56px;display:flex;align-items:center;justify-content:center;gap:16px;background:var(--ad-color-present-controls,#000)}
+.controls button{min-width:44px;min-height:44px;font:inherit;color:var(--ad-color-present-text,#fff);background:var(--ad-color-present-button,#30363d);border:1px solid var(--ad-color-present-border-strong,#8b949e);border-radius:6px;cursor:pointer}
+.controls button[aria-pressed="true"]{background:var(--ad-color-accent,#0b5cad)}
+button:focus-visible{outline:3px solid var(--ad-color-present-focus,#ffbf47);outline-offset:2px}
+#origin{color:var(--ad-color-present-origin,#ffd479)}`;
 
 /** A page that presents the deck: one slide at a time, keyboard navigation, and a speaker-notes view. */
 export function renderPresent(outline: DeckOutline, options: RenderOptions = {}): string {
