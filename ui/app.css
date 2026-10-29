@@ -31,7 +31,9 @@ h2 { font-size: var(--ad-font-size-lg); margin: 0 0 var(--ad-space-2); }
 .slide-el[role="button"] { cursor: grab; touch-action: none; }
 .slide-el[role="button"]:hover { outline: 1px dashed var(--ad-color-accent); }
 .slide-el.is-selected { outline: 2px solid var(--ad-color-accent); }
-.slide-el.is-agent { outline-offset: -2px; }
+.slide-el.is-agent { outline: 2px dashed #5b3fc8; outline-offset: -2px; }
+.agent-tag { position: absolute; top: 0; right: 0; font: 600 1.5cqw/1.4 var(--ad-font-family-sans); background: #3b2a8f; color: #fff; padding: 0 0.8cqw; }
+.agent-tag::before { content: "\2699\00a0"; }
 .slide-el:focus-visible { outline: 3px solid #0b5cad; box-shadow: 0 0 0 2px #fff, 0 0 0 5px #0b5cad; z-index: 1; }
 .slide-text { line-height: 1.25; display: flex; flex-direction: column; }
 .slide-list .slide-line::before { content: "\2022\00a0"; }

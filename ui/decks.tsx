@@ -6,6 +6,8 @@ import { messageOf } from "./session.js";
 
 export function DeckList({ client, canWrite }: { client: SlidesClient; canWrite: boolean }) {
   const [decks, setDecks] = useState<DeckSummary[] | undefined>();
+  const [more, setMore] = useState<string | undefined>();
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -14,9 +16,22 @@ export function DeckList({ client, canWrite }: { client: SlidesClient; canWrite:
 
   const load = useCallback(() => {
     setError(undefined);
-    client.listDecks().then(setDecks, (e) => setError(messageOf(e)));
+    client.listDecks().then((page) => (setDecks(page.decks), setMore(page.nextCursor)), (e) => setError(messageOf(e)));
   }, [client]);
   useEffect(load, [load]);
+
+  async function loadMore() {
+    setLoadingMore(true);
+    try {
+      const page = await client.listDecks({ cursor: more });
+      setDecks((now) => [...(now ?? []), ...page.decks]);
+      setMore(page.nextCursor);
+    } catch (e) {
+      toast({ title: "More decks did not load", description: messageOf(e), tone: "danger" });
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -51,10 +66,11 @@ export function DeckList({ client, canWrite }: { client: SlidesClient; canWrite:
       ) : (
         <FileList label="Decks">
           {decks.map((deck) => (
-            <FileRow key={deck.id} name={deck.title} href={`#/deck/${deck.id}`} modified={new Date(deck.savedAt ?? 0)} editedBy={entryOfPrincipal(deck.editedBy)} />
+            <FileRow key={deck.id} name={deck.title} href={`#/deck/${deck.id}`} modified={new Date(deck.savedAt)} editedBy={entryOfPrincipal(deck.editedBy)} />
           ))}
         </FileList>
       )}
+      {more && <Button variant="secondary" loading={loadingMore} onClick={() => void loadMore()}>Show more decks</Button>}
     </div>
   );
 }

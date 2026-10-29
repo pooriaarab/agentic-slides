@@ -45,6 +45,7 @@ const body = {
   create: z.object({ title: z.string().min(1).max(200), id: z.string().optional() }),
   add: z.object({ outline: z.string().optional(), layout: z.string().optional(), at: z.number().int().optional(), images }),
   set: z.object({ outline: z.string(), images }),
+  page: z.object({ limit: z.coerce.number().int().min(1).max(200).optional(), cursor: z.string().min(1).max(2000).optional() }),
   move: z.object({ to: z.number().int() }),
 };
 
@@ -135,7 +136,10 @@ export function createApp({ service, auth, live, principals = [] }: AppDeps) {
     const input = body.create.parse(await c.req.json());
     return c.json(await service.create({ ...input, author: c.get("author") }), 201);
   });
-  api.get("/decks", async (c) => c.json({ decks: await service.list() }));
+  api.get("/decks", async (c) => {
+    const { limit, cursor } = body.page.parse({ limit: c.req.query("limit"), cursor: c.req.query("cursor") });
+    return c.json(await service.list({ limit, cursor }));
+  });
   api.get("/decks/:deck", async (c) => c.json(await service.outline(c.req.param("deck"))));
   api.post("/decks/:deck/slides", async (c) => {
     const input = body.add.parse(await c.req.json());

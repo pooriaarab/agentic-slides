@@ -240,12 +240,32 @@ describe("deck list", () => {
   });
 });
 
+describe("deck list pages", () => {
+  test("lists the newest edit first, pages with a cursor, and refuses a bad limit or cursor", async () => {
+    const call = appFor();
+    for (const id of ["one", "two", "three"]) {
+      await call("POST", "/decks", { token: HUMAN, body: { title: id, id } });
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    // An edit makes a deck the newest again.
+    await call("POST", "/decks/one/slides", { token: AGENT, body: { layout: "blank" } });
+    const first = (await (await call("GET", "/decks?limit=2", { token: HUMAN })).json()) as { decks: { id: string }[]; nextCursor?: string };
+    expect(first.decks.map((d) => d.id)).toEqual(["one", "three"]);
+    expect(first.nextCursor).toBeTypeOf("string");
+    const second = (await (await call("GET", `/decks?limit=2&cursor=${encodeURIComponent(first.nextCursor!)}`, { token: HUMAN })).json()) as { decks: { id: string }[]; nextCursor?: string };
+    expect(second.decks.map((d) => d.id)).toEqual(["two"]);
+    expect(second.nextCursor).toBeUndefined();
+    for (const bad of ["limit=0", "limit=201", "limit=x", "cursor=%00"]) expect((await call("GET", `/decks?${bad}`, { token: HUMAN })).status).toBe(400);
+  });
+});
+
 describe("room token as a subprotocol", () => {
   const call = appFor();
   const offer = (token: string) => ({ "sec-websocket-protocol": `bearer.${token}` });
 
   test("the room route reads the token, and a wrong token is refused", async () => {
-    expect((await call("GET", "/decks/x/ws", { headers: offer(HUMAN) })).status).toBe(404) // past auth: this app has no live rooms;
+    // A token that passes is past auth, and this app has no live rooms, so the answer is 404.
+    expect((await call("GET", "/decks/x/ws", { headers: offer(HUMAN) })).status).toBe(404);
     expect((await call("GET", "/decks/x/ws", { headers: offer(`${HUMAN}x`) })).status).toBe(401);
     expect((await call("GET", "/decks/x/ws", { headers: { "sec-websocket-protocol": "chat, other" } })).status).toBe(401);
   });

@@ -9,8 +9,11 @@ export function Present({ client, id, start }: { client: SlidesClient; id: strin
   const [outline, setOutline] = useState<DeckOutline | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [at, setAt] = useState(start - 1);
+  // A new number in the address moves the deck.
+  useEffect(() => setAt(start - 1), [start]);
   const [attempt, setAttempt] = useState(0);
   const total = outline?.slides.length ?? 0;
+  const cur = Math.min(at, Math.max(0, total - 1));
 
   useEffect(() => {
     setError(undefined);
@@ -26,8 +29,8 @@ export function Present({ client, id, start }: { client: SlidesClient; id: strin
   useEffect(() => {
     if (total === 0) return;
     const keys: Record<string, () => void> = {
-      ArrowRight: () => go(at + 1), ArrowDown: () => go(at + 1), PageDown: () => go(at + 1), " ": () => go(at + 1),
-      ArrowLeft: () => go(at - 1), ArrowUp: () => go(at - 1), PageUp: () => go(at - 1),
+      ArrowRight: () => go(cur + 1), ArrowDown: () => go(cur + 1), PageDown: () => go(cur + 1), " ": () => go(cur + 1),
+      ArrowLeft: () => go(cur - 1), ArrowUp: () => go(cur - 1), PageUp: () => go(cur - 1),
       Home: () => go(0), End: () => go(total - 1), Escape: leave,
     };
     const on = (event: KeyboardEvent) => {
@@ -45,12 +48,12 @@ export function Present({ client, id, start }: { client: SlidesClient; id: strin
 
   // Keep the position in the address, so a reload opens the same slide.
   useEffect(() => {
-    if (total > 0) history.replaceState(null, "", `#/deck/${id}/present/${at + 1}`);
-  }, [at, id, total]);
+    if (total > 0) history.replaceState(null, "", `#/deck/${id}/present/${cur + 1}`);
+  }, [cur, id, total]);
 
   if (error) return <main className="present" data-theme="dark"><EmptyState title="The deck did not load" description={error} action={<><Button onClick={() => setAttempt(attempt + 1)}>Try again</Button> <Button variant="secondary" onClick={leave}>Leave</Button></>} /></main>;
   if (!outline) return <main className="present" data-theme="dark"><p role="status" className="muted"><span className="ad-spinner" aria-hidden="true" /> Loading deck…</p></main>;
-  const slide = outline.slides[Math.min(at, total - 1)];
+  const slide = outline.slides[cur];
   if (!slide) return <main className="present" data-theme="dark"><EmptyState title="This deck has no slides" action={<Button onClick={leave}>Leave</Button>} /></main>;
   return (
     <main className="present" data-theme="dark">
@@ -59,9 +62,9 @@ export function Present({ client, id, start }: { client: SlidesClient; id: strin
         <p className="ad-sr-only" role="status">Slide {slide.index} of {total}: {slide.title}</p>
       </div>
       <div className="present-bar">
-        <Button size="sm" variant="secondary" disabled={at === 0} onClick={() => go(at - 1)}>Previous</Button>
+        <Button size="sm" variant="secondary" disabled={cur === 0} onClick={() => go(cur - 1)}>Previous</Button>
         <span aria-hidden="true">{slide.index} / {total}</span>
-        <Button size="sm" variant="secondary" disabled={at >= total - 1} onClick={() => go(at + 1)}>Next</Button>
+        <Button size="sm" variant="secondary" disabled={cur >= total - 1} onClick={() => go(cur + 1)}>Next</Button>
         <Button size="sm" variant="secondary" onClick={() => void document.documentElement.requestFullscreen?.().catch(() => undefined)}>Full screen</Button>
         <Button size="sm" variant="secondary" onClick={leave}>Leave</Button>
       </div>

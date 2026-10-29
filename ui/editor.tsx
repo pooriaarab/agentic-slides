@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Button, Dialog, DialogClose, EmptyState, Input, PlusIcon, PresenceChip, PresenceStack, Select, Textarea, Toolbar, ToolbarButton, ToolbarSeparator, useToast } from "agentic-design/react";
 import { COLOR_TOKENS, LAYOUT_NAMES } from "../src/core/layouts.js";
 import type { DeckOutline, ElementPatch, SlideOutline, SlidesClient } from "../src/client.js";
@@ -15,20 +15,23 @@ const clamp = (n: number, low: number, high: number) => Math.round(Math.min(Math
 export function Editor({ client, id, token, canWrite, name }: { client: SlidesClient; id: string; token: string; canWrite: boolean; name: string }) {
   const [outline, setOutline] = useState<DeckOutline | undefined>();
   const [error, setError] = useState<string | undefined>();
-  const [at, setAt] = useState(0);
+  // The slide is kept by id, so a slide that another writer adds or moves does not change which slide is open.
+  const [slideId, setSlideId] = useState<string | undefined>();
   const [picked, setPicked] = useState<string | undefined>();
   const [layout, setLayout] = useState("title-body");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const pending = useRef(0);
+  const latest = useRef(0);
   const toast = useToast();
   const files = useRef<HTMLInputElement>(null);
   const { peers, live } = usePresence(token, id, name);
 
   const load = useCallback(async () => {
+    const mine = ++latest.current;
     try {
       const next = await client.outline(id);
-      // A poll that lands while a change is on its way would undo the change on screen.
-      if (pending.current === 0) setOutline(next);
+      // A poll that lands while a change is on its way, or an answer that a newer read passed, would undo a change on screen.
+      if (pending.current === 0 && mine === latest.current) setOutline(next);
       setError(undefined);
     } catch (e) {
       setError(messageOf(e));
@@ -40,7 +43,8 @@ export function Editor({ client, id, token, canWrite, name }: { client: SlidesCl
     return () => clearInterval(timer);
   }, [load]);
 
-  const slide = outline?.slides[Math.min(at, (outline?.slides.length ?? 1) - 1)];
+  const at = Math.max(0, outline?.slides.findIndex((s) => s.id === slideId) ?? 0);
+  const slide = outline?.slides[at];
   const element = slide?.elements.find((e) => e.id === picked);
 
   /** Run one change, tell the person when it fails, and read the deck again. */
@@ -81,18 +85,17 @@ export function Editor({ client, id, token, canWrite, name }: { client: SlidesCl
   const patchElement = (el: El, patch: ElementPatch, done?: string) => act(() => client.editElement(id, slide!.id, el.id, patch), "The change was not saved", done);
   const add = (name: string) => act(async () => {
     const { slideIds } = await client.addSlides(id, { layout: name, at: slide ? at + 2 : undefined });
-    const next = await client.outline(id);
-    setOutline(next);
-    setAt(Math.max(0, next.slides.findIndex((s) => s.id === slideIds[0])));
+    setOutline(await client.outline(id));
+    setSlideId(slideIds[0]);
     setPicked(undefined);
   }, "The slide was not added", "Slide added");
   const move = (by: number) => slide && act(async () => {
     await client.moveSlide(id, slide.id, slide.index + by);
-    setAt(at + by);
   }, "The slide did not move");
-  const remove = () => slide && act(async () => {
-    await client.deleteSlide(id, slide.id);
-    setAt(Math.max(0, at - 1));
+  const [doomed, setDoomed] = useState("");
+  const remove = () => doomed && act(async () => {
+    await client.deleteSlide(id, doomed);
+    setSlideId(outline?.slides[Math.max(0, at - 1)]?.id);
     setPicked(undefined);
   }, "The slide was not deleted", "Slide deleted");
 
@@ -103,13 +106,12 @@ export function Editor({ client, id, token, canWrite, name }: { client: SlidesCl
     const title = file.name.replace(/\.[^.]+$/, "").replace(/[^\w -]/g, " ").trim() || "Image";
     await act(async () => {
       const { slideIds } = await client.addSlides(id, { outline: `layout: image-right\n# ${title}\n![${title}](picture)`, images: { picture: new Uint8Array(await file.arrayBuffer()) }, at: slide ? at + 2 : undefined });
-      const next = await client.outline(id);
-      setOutline(next);
-      setAt(Math.max(0, next.slides.findIndex((s) => s.id === slideIds[0])));
+      setOutline(await client.outline(id));
+      setSlideId(slideIds[0]);
     }, "The image slide was not added", "Image slide added");
   }
 
-  const present = useMemo(() => `#/deck/${id}/present/${(slide?.index ?? 1)}`, [id, slide?.index]);
+  const present = `#/deck/${id}/present/${slide?.index ?? 1}`;
 
   if (error && !outline) return <div className="page"><EmptyState title="The deck did not load" description={error} action={<Button onClick={() => void load()}>Try again</Button>} /></div>;
   if (!outline) return <div className="page"><p role="status" className="muted"><span className="ad-spinner" aria-hidden="true" /> Loading deck…</p></div>;
@@ -130,13 +132,13 @@ export function Editor({ client, id, token, canWrite, name }: { client: SlidesCl
         <ToolbarSeparator />
         <ToolbarButton label="Move slide earlier" icon={<UpIcon />} disabled={!canWrite || !slide || slide.index === 1} onClick={() => void move(-1)} />
         <ToolbarButton label="Move slide later" icon={<DownIcon />} disabled={!canWrite || !slide || slide.index === outline.slides.length} onClick={() => void move(1)} />
-        <ToolbarButton label="Delete slide" icon={<TrashIcon />} disabled={!canWrite || !slide} onClick={() => setConfirmDelete(true)} />
+        <ToolbarButton label="Delete slide" icon={<TrashIcon />} disabled={!canWrite || !slide} onClick={() => (setDoomed(slide!.id), setConfirmDelete(true))} />
         <ToolbarSeparator />
         <ToolbarButton label="Refresh" icon={<RefreshIcon />} onClick={() => void load()} />
         <ToolbarButton label="Present" icon={<PlayIcon />} disabled={!slide} onClick={() => (location.hash = present)} />
       </Toolbar>
       <input ref={files} type="file" accept="image/png,image/jpeg" hidden onChange={addImage} aria-label="Image file" tabIndex={-1} />
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete} title="Delete this slide?" description="The slide and its notes are removed from the deck." footer={<><DialogClose asChild><Button variant="secondary">Keep slide</Button></DialogClose><DialogClose asChild><Button variant="danger" onClick={() => void remove()}>Delete slide</Button></DialogClose></>} />
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete} title={`Delete slide ${outline.slides.find((s) => s.id === doomed)?.index ?? ""}?`} description={`"${outline.slides.find((s) => s.id === doomed)?.title || "Untitled"}" and its notes are removed from the deck.`} footer={<><DialogClose asChild><Button variant="secondary">Keep slide</Button></DialogClose><DialogClose asChild><Button variant="danger" onClick={() => void remove()}>Delete slide</Button></DialogClose></>} />
 
       {!slide ? (
         <EmptyState title="This deck has no slides" description={canWrite ? "Add the first slide." : "Nothing to show."} action={canWrite ? <Button onClick={() => void add(layout)}>Add first slide</Button> : undefined} />
@@ -146,7 +148,7 @@ export function Editor({ client, id, token, canWrite, name }: { client: SlidesCl
             <ol>
               {outline.slides.map((s, i) => (
                 <li key={s.id}>
-                  <button type="button" className="thumb" aria-current={i === at ? "true" : undefined} onClick={() => (setAt(i), setPicked(undefined))}>
+                  <button type="button" className="thumb" aria-current={i === at ? "true" : undefined} onClick={() => (setSlideId(s.id), setPicked(undefined))}>
                     <span className="thumb-box"><SlideView slide={s} theme={outline.theme} label="" /></span>
                     <span className="thumb-text"><span className="thumb-number"><span className="ad-sr-only">Slide </span>{s.index}</span> <span className="thumb-title">{s.title || "Untitled"}</span></span>
                     {s.machineMade && <span className="agent-mark">Agent edit</span>}
@@ -163,7 +165,7 @@ export function Editor({ client, id, token, canWrite, name }: { client: SlidesCl
             <h2>{element ? "Element" : `Slide ${slide.index}`}</h2>
             <p className="who">Last edit: <PresenceChip entry={entryOfPrincipal(element ? element.editedBy : slide.editedBy)} /></p>
             {(element ? element.machineMade : slide.machineMade) && <p className="agent-mark">Edited by an agent</p>}
-            {element ? <ElementForm key={`${element.id}:${JSON.stringify(element)}`} el={element} canWrite={canWrite} save={(patch, done) => patchElement(element, patch, done)} /> : (
+            {element ? <ElementForm key={element.id} el={element} canWrite={canWrite} save={(patch, done) => patchElement(element, patch, done)} /> : (
               <>
                 <p className="muted">Layout: {slide.layout}. Pick an element on the canvas to edit it.</p>
                 {slide.notes && <p><strong>Notes:</strong> {slide.notes}</p>}
@@ -181,18 +183,20 @@ export function Editor({ client, id, token, canWrite, name }: { client: SlidesCl
 }
 
 function ElementForm({ el, canWrite, save }: { el: El; canWrite: boolean; save: (patch: ElementPatch, done?: string) => Promise<void> }) {
-  const [text, setText] = useState(el.kind === "text" ? markup(el.runs) : "");
-  const [alt, setAlt] = useState(el.kind === "image" ? el.alt : "");
-  const [box, setBox] = useState({ x: el.x, y: el.y, w: el.w, h: el.h });
+  // A draft is what the person typed and did not save. Without one, the field follows the deck, so an agent's edit shows.
+  const [text, setText] = useState<string | undefined>();
+  const [alt, setAlt] = useState<string | undefined>();
+  const [edited, setEdited] = useState<Partial<Record<"x" | "y" | "w" | "h", number>>>({});
+  const box = { x: el.x, y: el.y, w: el.w, h: el.h, ...edited };
   const num = (key: keyof typeof box) => (
-    <Input key={key} label={key.toUpperCase()} type="number" value={box[key]} disabled={!canWrite} onChange={(e) => setBox({ ...box, [key]: Number(e.target.value) })} />
+    <Input key={key} label={key.toUpperCase()} type="number" value={box[key]} disabled={!canWrite} onChange={(e) => setEdited({ ...edited, [key]: Number(e.target.value) })} />
   );
   return (
     <form className="element-form" onSubmit={(e) => { e.preventDefault(); }}>
       {el.kind === "text" && (
         <>
-          <Textarea label="Text" hint="Use **bold** and *italic*." rows={5} value={text} disabled={!canWrite} onChange={(e) => setText(e.target.value)} />
-          <Button disabled={!canWrite} onClick={() => void save({ text }, "Text saved")}>Save text</Button>
+          <Textarea label="Text" hint="Use **bold** and *italic*." rows={5} value={text ?? markup(el.runs)} disabled={!canWrite} onChange={(e) => setText(e.target.value)} />
+          <Button disabled={!canWrite} onClick={() => void save({ text: text ?? markup(el.runs) }, "Text saved").then(() => setText(undefined))}>Save text</Button>
         </>
       )}
       {el.kind === "shape" && (
@@ -202,14 +206,14 @@ function ElementForm({ el, canWrite, save }: { el: El; canWrite: boolean; save: 
       )}
       {el.kind === "image" && (
         <>
-          <Input label="Description" hint="Say what the picture shows." value={alt} disabled={!canWrite} onChange={(e) => setAlt(e.target.value)} />
-          <Button disabled={!canWrite} onClick={() => void save({ alt }, "Description saved")}>Save description</Button>
+          <Input label="Description" hint="Say what the picture shows." value={alt ?? el.alt} disabled={!canWrite} onChange={(e) => setAlt(e.target.value)} />
+          <Button disabled={!canWrite} onClick={() => void save({ alt: alt ?? el.alt }, "Description saved").then(() => setAlt(undefined))}>Save description</Button>
         </>
       )}
       <fieldset className="box">
         <legend>Position and size</legend>
         {num("x")}{num("y")}{num("w")}{num("h")}
-        <Button variant="secondary" disabled={!canWrite} onClick={() => void save(box, "Position saved")}>Save position</Button>
+        <Button variant="secondary" disabled={!canWrite} onClick={() => void save(box, "Position saved").then(() => setEdited({}))}>Save position</Button>
       </fieldset>
     </form>
   );

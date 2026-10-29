@@ -113,8 +113,11 @@ export function createClient({ baseUrl, token, fetch: send = (...args) => global
     health: (options: CallOptions = {}) => json<Health>(call("GET", "", { ...options, root: `${baseUrl.replace(/\/+$/, "")}/health` })),
     /** Who the token stands for. */
     me: (options: CallOptions = {}) => json<Me>(call("GET", "/me", options)),
-    /** The decks, with the last editor of each. */
-    listDecks: async (options: CallOptions = {}) => (await json<{ decks: DeckSummary[] }>(call("GET", "/decks", options))).decks,
+    /** One page of decks, newest edit first, with the last editor of each. Pass `nextCursor` of the last page as `cursor` for the next. */
+    listDecks: (input: { limit?: number; cursor?: string } = {}, options: CallOptions = {}) => {
+      const query = new URLSearchParams(Object.entries(input).flatMap(([key, value]) => (value === undefined ? [] : [[key, String(value)]])));
+      return json<{ decks: DeckSummary[]; nextCursor?: string }>(call("GET", `/decks${query.size ? `?${query}` : ""}`, options));
+    },
     createDeck: (input: { title: string; id?: string }, options: CallOptions = {}) => json<{ id: string }>(call("POST", "/decks", { ...options, body: input })),
     outline: (deck: string, options: CallOptions = {}) => json<DeckOutline>(call("GET", `/decks/${seg(deck)}`, options)),
     addSlides: (deck: string, input: AddSlidesInput, options: CallOptions = {}) =>

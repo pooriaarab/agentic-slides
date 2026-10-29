@@ -92,12 +92,18 @@ export function SlideView({ slide, theme, selected, onSelect, onNudge, label }: 
     const move = (e: globalThis.PointerEvent) => {
       if (Math.hypot(e.clientX - from.x, e.clientY - from.y) > 4) moved = true;
     };
-    const up = (end: globalThis.PointerEvent) => {
+    const stop = () => {
       removeEventListener("pointermove", move);
+      removeEventListener("pointerup", up);
+      removeEventListener("pointercancel", stop);
+    };
+    const up = (end: globalThis.PointerEvent) => {
+      stop();
       if (moved) onNudge(el, el.x + (end.clientX - from.x) * scale, el.y + (end.clientY - from.y) * scale);
     };
     addEventListener("pointermove", move);
-    addEventListener("pointerup", up, { once: true });
+    addEventListener("pointerup", up);
+    addEventListener("pointercancel", stop);
   };
   return (
     <div className="slide" {...(label === "" ? { "aria-hidden": true } : { role: interactive ? "group" : "img", "aria-label": label ?? `Slide ${slide.index}: ${slide.title}` })} style={{ background: theme.colors.background }}>
@@ -110,12 +116,13 @@ export function SlideView({ slide, theme, selected, onSelect, onNudge, label }: 
             role="button"
             tabIndex={0}
             aria-pressed={selected === el.id}
-            aria-label={describe(el, i)}
+            aria-label={`${describe(el, i)}${el.machineMade ? ", edited by an agent" : ""}`}
             onClick={() => onSelect(el.id)}
             onKeyDown={key(el)}
             onPointerDown={drag(el)}
           >
             <Body el={el} theme={theme} />
+            {el.machineMade && <span className="agent-tag" aria-hidden="true">Agent edit</span>}
           </div>
         ) : (
           <div key={el.id} className="slide-el" style={box(el)} aria-hidden="true">

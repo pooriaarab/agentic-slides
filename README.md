@@ -90,7 +90,7 @@ curl -s -X POST localhost:8787/api/v1/slides/decks \
 
 | Route | Does |
 | --- | --- |
-| `GET /decks` | List the decks, with the last editor of each. |
+| `GET /decks?limit=&cursor=` | One page of decks, newest edit first, with the last editor of each. `nextCursor` names the next page. |
 | `POST /decks` | Create a deck. |
 | `GET /decks/:deck` | Read the outline. |
 | `POST /decks/:deck/slides` | Add slides from `outline` or one `layout`. |
@@ -250,7 +250,7 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 - Elements cannot be added or deleted one by one yet. The canvas edits the elements that a layout makes.
 - The UI shows an image as a box with its description. The API has no route to read one image yet.
 - The UI uses the room for presence only. Its edits go through the HTTP API, and it reads the deck again every 3 seconds.
-- The deck list shows at most 200 decks. A deck saved before this version has no editor and no time in the list until its next edit.
+- The deck list reads a small index that each save writes. A deck that nobody edited since this version is not in the list until its next edit.
 
 ## Develop
 
