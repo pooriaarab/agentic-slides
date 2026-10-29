@@ -46,7 +46,7 @@ async function start(attempts = 3): Promise<string> {
   let log = "";
   const server = spawn(
     "npx",
-    ["wrangler", "dev", "--port", String(port), "--ip", "127.0.0.1", "--inspector-port", String(port + 100), "--persist-to", persist, "--var", "SLIDES_REGION:unknown", "--var", `SLIDES_TOKENS:${HUMAN}=human:ada,${AGENT}=agent_of_human:bot,${ROBOT}=agent:robot`],
+    ["wrangler", "dev", "--port", String(port), "--ip", "127.0.0.1", "--inspector-port", String(port + 100), "--persist-to", persist, "--var", "SLIDES_REGION:unknown", "--var", "SLIDES_UNSAFE_STATIC_TOKENS:1", "--var", `SLIDES_TOKENS:${HUMAN}=human:ada,${AGENT}=agent_of_human:bot,${ROBOT}=agent:robot`],
     { env: { ...process.env, WRANGLER_SEND_METRICS: "false", HOME: home, XDG_CONFIG_HOME: home, CI: "1" }, detached: true },
   );
   workers.push({ server, base: url });

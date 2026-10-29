@@ -23,8 +23,9 @@ The package is in development. Only the latest commit on `main` gets fixes.
 - The package ships no default credentials.
 - Test-only sign-in is off unless an environment variable turns it on.
 - Logs hold no email addresses and no slide content.
-- The HTTP API refuses every call until you set `SLIDES_TOKENS`. A token has 32 or more characters
-  and names the author of its edits. The Worker refuses to start until `SLIDES_UNSAFE_MEMORY_STORE=1`.
+- The HTTP API refuses every call without an agentic-identity credential. The scopes `slides:write` and
+  `slides:read` set the role, and a credential with neither gets 403. The static `SLIDES_TOKENS` list is a dev
+  fallback and needs `SLIDES_UNSAFE_STATIC_TOKENS=1`. The Worker refuses to start until `SLIDES_UNSAFE_MEMORY_STORE=1`.
 - Every valid token reaches every deck. There is no per-deck owner or role yet.
 - Dev tools are not shipped. `wrangler` pulls in `sharp` libvips (LGPL) and `@speed-highlight/core`
   (CC0) as dev dependencies only. Scope a software bill of materials to production dependencies.

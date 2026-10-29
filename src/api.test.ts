@@ -77,10 +77,10 @@ describe("auth fails closed", () => {
   });
 
   test("the Worker answers 500 MISCONFIGURED, not open access, on a bad token setting", async () => {
-    const response = await worker.fetch(new Request(`${BASE}/decks/x`, { headers: { authorization: "Bearer short" } }), { ...BINDINGS, SLIDES_TOKENS: "short=human:ada" });
+    const response = await worker.fetch(new Request(`${BASE}/decks/x`, { headers: { authorization: "Bearer short" } }), { ...BINDINGS, SLIDES_UNSAFE_STATIC_TOKENS: "1", SLIDES_TOKENS: "short=human:ada" });
     expect(response.status).toBe(500);
     expect(JSON.stringify(await response.json())).toContain("MISCONFIGURED");
-    expect((await worker.fetch(new Request("http://slides.test/health"), { ...BINDINGS, SLIDES_TOKENS: "short=human:ada" })).status).toBe(200);
+    expect((await worker.fetch(new Request("http://slides.test/health"), { ...BINDINGS, SLIDES_UNSAFE_STATIC_TOKENS: "1", SLIDES_TOKENS: "short=human:ada" })).status).toBe(200);
   });
 });
 
@@ -132,7 +132,7 @@ describe("bad requests", () => {
 
 describe("the Worker needs its bindings", () => {
   test("it refuses every request, health included, when the D1 or R2 binding is missing", async () => {
-    for (const [env, text] of [[{ SLIDES_TOKENS: `${HUMAN}=human:ada` }, "DB"], [{ SLIDES_TOKENS: `${HUMAN}=human:ada`, DB: BINDINGS.DB }, "IMAGES"]] as const) {
+    for (const [env, text] of [[{ SLIDES_UNSAFE_STATIC_TOKENS: "1", SLIDES_TOKENS: `${HUMAN}=human:ada` }, "DB"], [{ SLIDES_UNSAFE_STATIC_TOKENS: "1", SLIDES_TOKENS: `${HUMAN}=human:ada`, DB: BINDINGS.DB }, "IMAGES"]] as const) {
       for (const path of ["/health", "/api/v1/slides/decks/x"]) {
         const response = await worker.fetch(new Request(`http://slides.test${path}`, { headers: { authorization: `Bearer ${HUMAN}` } }), env);
         expect(response.status).toBe(500);
@@ -141,11 +141,11 @@ describe("the Worker needs its bindings", () => {
         expect(body).toContain(text);
       }
     }
-    expect((await worker.fetch(new Request("http://slides.test/health"), { ...BINDINGS, SLIDES_TOKENS: `${HUMAN}=human:ada` })).status).toBe(200);
+    expect((await worker.fetch(new Request("http://slides.test/health"), { ...BINDINGS, SLIDES_UNSAFE_STATIC_TOKENS: "1", SLIDES_TOKENS: `${HUMAN}=human:ada` })).status).toBe(200);
   });
 
   test("a bad region setting is refused, and a D1 that does not report its region fails closed under eu", async () => {
-    const env = { ...BINDINGS, SLIDES_TOKENS: `${HUMAN}=human:ada` };
+    const env = { ...BINDINGS, SLIDES_UNSAFE_STATIC_TOKENS: "1", SLIDES_TOKENS: `${HUMAN}=human:ada` };
     const bad = await worker.fetch(new Request("http://slides.test/health"), { ...env, SLIDES_REGION: "EU" });
     expect(bad.status).toBe(500);
     expect(JSON.stringify(await bad.json())).toContain("SLIDES_REGION");
@@ -157,7 +157,7 @@ describe("the Worker needs its bindings", () => {
   test("a database that cannot make its schema is a 503, and the next request tries again", async () => {
     let calls = 0;
     const DB = { prepare: () => ({ run: async () => (++calls === 1 ? Promise.reject(new Error("D1_ERROR secret")) : {}) }), batch: async () => [] } as never;
-    const env = { DB, IMAGES: {} as never, SLIDES_TOKENS: `${HUMAN}=human:ada` };
+    const env = { DB, IMAGES: {} as never, SLIDES_UNSAFE_STATIC_TOKENS: "1", SLIDES_TOKENS: `${HUMAN}=human:ada` };
     const first = await worker.fetch(new Request("http://slides.test/health"), env);
     expect(first.status).toBe(503);
     expect(JSON.stringify(await first.json())).not.toContain("secret");

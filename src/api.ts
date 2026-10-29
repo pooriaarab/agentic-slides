@@ -6,7 +6,7 @@ import type { Realtime } from "agentic-realtime";
 import { acceptWebSocketProtocol, principalFromWebSocketRequest } from "agentic-identity/http";
 import { EraseRefusedError, MAX_OWNERS_ON_ERASE, ROLES, StoreConflictError, createSharing, type Auth, type Json, type PrincipalContext, type Role, type Store, type Subject } from "agentic-identity";
 import { DECK, DECK_ID, contextOf, roomPrincipals, subjectOf } from "./access.js";
-import { ConfigError, type Authenticator, type Caller, type SlidesRole } from "./auth.js";
+import { ConfigError, NotGrantedError, type Authenticator, type Caller, type SlidesRole } from "./auth.js";
 import { SlidesError, fail, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
 import { toBase64 } from "./bytes.js";
 import { openCursor, sealCursor } from "./cursor.js";
@@ -469,6 +469,7 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     if (error instanceof SlidesError) {
       return c.json(failure(error.code, error.message, { issues: error.issues }), statusOf(error.code));
     }
+    if (error instanceof NotGrantedError) return c.json(failure("FORBIDDEN", "This credential holds no slides scope."), 403);
     if (error instanceof ConfigError) return c.json(failure("MISCONFIGURED", "The server token setting is invalid."), 500);
     if (error instanceof z.ZodError) {
       return c.json(failure("BAD_REQUEST", "The request body is not valid.", { issues: error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) }), 400);

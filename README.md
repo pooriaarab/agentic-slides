@@ -111,19 +111,35 @@ export WRANGLER_SEND_METRICS=false
 npx wrangler d1 create agentic-slides-demo --location weur
 npx wrangler r2 bucket create agentic-slides-demo-images --jurisdiction eu
 npm ci && npm run deploy:demo
-npx wrangler secret put SLIDES_TOKENS -c wrangler.demo.jsonc
 ```
 
-To redeploy after a change, run `npm run deploy:demo` again. Put no token in a file or in CI. Set it only with `wrangler secret put`.
+The Worker signs requests in with agentic-identity credentials. Issue a credential for a principal in the same D1 database (see "Sign in" below). The demo needs no static token.
+
+To redeploy after a change, run `npm run deploy:demo` again. Put no token in a file or in CI.
 
 ## HTTP API
 
-A Cloudflare Worker (Hono) serves `/api/v1/slides`. It mirrors the CLI. Set tokens as a secret.
-Each token names who edits, so a client cannot claim a different kind. Build first, because `wrangler.jsonc` serves `dist/ui`:
+A Cloudflare Worker (Hono) serves `/api/v1/slides`. It mirrors the CLI.
+
+### Sign in
+
+The Worker uses agentic-identity auth. A bearer key or an access token in the Store (the `credentials` and `principals` collections of the `DB` binding) signs a request in. The principal and its kind name the author of each edit, so a client cannot claim a different kind. The scopes of the principal set the role:
+
+- `slides:write` is an editor. A wildcard such as `*:admin` also covers it.
+- `slides:read` is a viewer. It reads and cannot write.
+- A valid credential with neither scope gets 403. No credential, an unknown one, or a revoked one gets 401.
+
+A store that fails gives a 5xx answer, never a 401.
+
+### Local dev path
+
+For a local run you can use a static token list. It is off by default. Set `SLIDES_UNSAFE_STATIC_TOKENS=1` to turn it on. Then `SLIDES_TOKENS` (`token=kind:name,...`, each token 32 characters or more) signs requests in, and the identity credentials still work. Without the switch, a Worker that sets `SLIDES_TOKENS` answers every API call with 500 `MISCONFIGURED`. A static token cannot be revoked without a new deploy. Never set the switch in production.
+
+Build first, because `wrangler.jsonc` serves `dist/ui`:
 
 ```sh
 npm run build
-WRANGLER_SEND_METRICS=false npx wrangler dev --var SLIDES_REGION:unknown \
+WRANGLER_SEND_METRICS=false npx wrangler dev --var SLIDES_REGION:unknown --var SLIDES_UNSAFE_STATIC_TOKENS:1 \
   --var 'SLIDES_TOKENS:my-long-token-0123456789-abcdefghij=agent_of_human:bot'
 
 curl -s -X POST localhost:8787/api/v1/slides/decks \
@@ -212,7 +228,7 @@ Run it on your machine. Build first, because the Worker serves `dist/ui`:
 
 ```sh
 npm ci && npm run build
-WRANGLER_SEND_METRICS=false npx wrangler dev --var SLIDES_REGION:unknown \
+WRANGLER_SEND_METRICS=false npx wrangler dev --var SLIDES_REGION:unknown --var SLIDES_UNSAFE_STATIC_TOKENS:1 \
   --var 'SLIDES_TOKENS:my-long-token-0123456789-abcdefghij=human:ada,agent-token-0123456789-abcdefghij=agent_of_human:bot'
 ```
 
@@ -223,13 +239,13 @@ To serve the UI from the npm package in your own Worker, copy `wrangler.jsonc` f
 `./node_modules/agentic-slides/dist/live-worker.js`, and change `assets.directory` to `./node_modules/agentic-slides/dist/ui`.
 Keep the `DB`, `IMAGES`, and `SYNC_ROOM` bindings. The package ships `dist/ui`, so you do not need the source.
 The package exports the API Worker as `agentic-slides/worker`. The default export is a Worker with a `fetch` handler.
-`createWorker()` makes another one. It needs a D1 binding `DB` and an R2 binding `IMAGES`. Every route needs a bearer token from `SLIDES_TOKENS`.
+`createWorker()` makes another one. It needs a D1 binding `DB` and an R2 binding `IMAGES`. Every route needs an agentic-identity credential (see "Sign in").
 
 ```ts
 export { default } from "agentic-slides/worker";
 ```
 
-The setup comments in `wrangler.jsonc` say how to create the D1 database and the R2 bucket, and how to set `SLIDES_TOKENS` as a secret.
+The setup comments in `wrangler.jsonc` say how to create the D1 database and the R2 bucket, and how to issue credentials.
 
 Test the UI in a browser. The tests start their own Workers, so run `npm run build` first. They need
 Chromium once (`npx playwright install chromium`):
