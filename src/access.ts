@@ -1,4 +1,4 @@
-import { PRINCIPAL_KINDS, SUBJECT_KINDS, type PrincipalContext, type Subject } from "agentic-identity";
+import { PRINCIPAL_KINDS, SUBJECT_KINDS, parsePrincipal, type PrincipalContext, type Subject } from "agentic-identity";
 import type { Caller } from "./auth.js";
 import { fail, type Principal } from "./core/principal.js";
 
@@ -28,11 +28,39 @@ export function subjectOf(caller: Caller): Subject | null {
 }
 
 /**
- * The room principal ids (`<kind>:<name>`) of the tokens that hold a subject. A room keeps the role that it got at connect time,
- * so a change of role reaches every socket of these ids.
+ * The principal id of a token in a room. `agentic-realtime` 0.4 takes ids of the `agentic-identity` rule, which has no colon, so the
+ * id is `<kind>.<name>`. No kind has a dot, so the first dot always ends the kind, and two kinds never give the same id.
+ */
+export function roomPrincipalId(kind: string, name: string): string {
+  return `${kind}.${name}`;
+}
+
+/**
+ * True when the room takes the id of a token. A longer id is refused, so no socket of it can exist. `agentic-realtime` checks the
+ * same rule with the `agentic-identity` that this package uses.
+ */
+export function roomPrincipalFits(kind: string, name: string): boolean {
+  try {
+    parsePrincipal({ kind, id: roomPrincipalId(kind, name) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The `<kind>:<name>` key of a room principal id. An id with a colon is an old key, and it stays as it is. */
+export function keyOfRoomPrincipal(id: string): string {
+  return id.includes(":") ? id : id.replace(".", ":");
+}
+
+/**
+ * The room principal ids of the tokens that hold a subject. A room keeps the role that it got at connect time,
+ * so a change of role reaches every socket of these ids. An id that the room would refuse has no socket, so it is left out.
  */
 export function roomPrincipals(subject: Subject): string[] {
-  return principalsOf(subject).map(({ kind, name }) => `${kind}:${name}`);
+  return principalsOf(subject)
+    .filter(({ kind, name }) => roomPrincipalFits(kind, name))
+    .map(({ kind, name }) => roomPrincipalId(kind, name));
 }
 
 /** The authors (`kind` and `name`) that a subject stands for in a deck: the subject itself and, for an agent, each delegated token that has its name. */

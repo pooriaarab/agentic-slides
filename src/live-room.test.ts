@@ -1,4 +1,4 @@
-import { createMemoryBlobs, createMemoryStore } from "agentic-identity";
+import { createMemoryBlobs, createMemoryStore, parsePrincipal } from "agentic-identity";
 import type { Grant, Realtime } from "agentic-realtime";
 import * as Y from "yjs";
 import { describe, expect, test, vi } from "vitest";
@@ -6,6 +6,9 @@ import { createApp } from "./api.js";
 import { parseTokens, tokenAuth } from "./auth.js";
 import { Deck } from "./core/deck.js";
 import { createService } from "./service.js";
+
+/** As `agentic-realtime` does: a room takes only an id of the `agentic-identity` rule, so a `<kind>:<name>` id throws here. */
+const roomId = (id: string) => (parsePrincipal({ kind: id.split(".")[0], id }), id);
 
 // Ways the live room routes can fail, on the real app over a memory store.
 // The wrangler E2E in src/e2e/live.test.ts runs the real Durable Object room.
@@ -17,12 +20,12 @@ const BASE = "http://slides.test/api/v1/slides";
 const ada = { kind: "human", name: "ada" } as const;
 const bot = { kind: "agent_of_human", name: "bot" } as const;
 
-function setup(options: { live?: boolean } = {}) {
+function setup(options: { live?: boolean; extra?: string } = {}) {
   const grants: { id: string; grant: Grant }[] = [];
   const erased: string[] = [];
   const contributors: { id: string; kind: string; machine: boolean }[] = [];
   const live: Realtime = {
-    connect: async (id, _request, grant) => (grants.push({ id, grant }), new Response("joined", { status: 200 })),
+    connect: async (id, _request, grant) => (roomId(grant.principal.id), grants.push({ id, grant }), new Response("joined", { status: 200 })),
     meta: async () => ({ updates: 0, compactions: 0, contributors: contributors as never }),
     createSnapshot: async () => null,
     listSnapshots: async () => [],
@@ -36,7 +39,7 @@ function setup(options: { live?: boolean } = {}) {
     attribution: async () => Promise.reject(new Error("not used by these routes")),
   };
   const service = createService({ store: createMemoryStore(), blobs: createMemoryBlobs() });
-  const tokens = parseTokens(TOKENS);
+  const tokens = parseTokens(options.extra ? `${TOKENS},${options.extra}` : TOKENS);
   const principals = tokens.filter(([, caller]) => caller.role === "editor").map(([, caller]) => caller.author);
   const app = createApp({ service, auth: tokenAuth(tokens), principals, live: options.live === false ? undefined : () => live });
   const call = (method: string, path: string, init: { token?: string; body?: BodyInit | Uint8Array; headers?: Record<string, string> } = {}) =>
@@ -122,6 +125,16 @@ describe("the room route checks the caller before it joins", () => {
     expect((await call("GET", "/decks/t/ws", { token: HUMAN })).status).toBe(426);
   });
 
+  test("a token name too long for a room id answers 403 and opens no socket", async () => {
+    const LONG = "long-token-0123456789-abcdefghij";
+    const { call, service, grants } = setup({ extra: `${LONG}=human:${"a".repeat(123)}` });
+    await service.create({ title: "T", id: "t", author: ada });
+    const refused = await call("GET", "/decks/t/ws", { token: LONG, headers: ws });
+    expect(refused.status).toBe(403);
+    expect((await json(refused)).error.code).toBe("FORBIDDEN");
+    expect(grants).toEqual([]);
+  });
+
   test("a server with no rooms answers 404", async () => {
     const { call, service } = setup({ live: false });
     await service.create({ title: "T", id: "t", author: ada });
@@ -133,8 +146,8 @@ describe("the room route checks the caller before it joins", () => {
     await service.create({ title: "T", id: "t", author: ada });
     for (const token of [AGENT, WATCHER]) expect((await call("GET", "/decks/t/ws", { token, headers: { ...ws, "x-principal": "human:ada" } })).status).toBe(200);
     expect(grants.map((g) => g.grant)).toEqual([
-      { principal: { id: "agent_of_human:bot", kind: "agent_of_human" }, role: "editor", name: "bot" },
-      { principal: { id: "human:eve", kind: "human" }, role: "viewer", name: "eve" },
+      { principal: { id: "agent_of_human.bot", kind: "agent_of_human" }, role: "editor", name: "bot" },
+      { principal: { id: "human.eve", kind: "human" }, role: "viewer", name: "eve" },
     ]);
     expect(grants.every((g) => g.id === "t")).toBe(true);
   });
@@ -159,7 +172,7 @@ describe("a checkpoint saves the room state", () => {
     const { call, service, contributors } = setup();
     await service.create({ title: "T", id: "t", author: ada });
     // Both wrote into one room, so the room saw both. The deck label is the one that the merge keeps.
-    contributors.push({ id: "human:ada", kind: "human", machine: false }, { id: "agent_of_human:bot", kind: "agent_of_human", machine: true });
+    contributors.push({ id: "human.ada", kind: "human", machine: false }, { id: "agent_of_human.bot", kind: "agent_of_human", machine: true });
     const state = new Uint8Array(await (await call("GET", "/decks/t/state", { token: HUMAN })).arrayBuffer());
     const one = update((d) => d.addSlide({ layout: "blank" }, ada), state);
     const two = update((d) => d.addSlide({ layout: "title" }, bot), state);
@@ -279,7 +292,7 @@ describe("a checkpoint keeps the author labels honest", () => {
     deck.addSlide({ layout: "blank" }, ada);
     deck.addSlide({ layout: "title" }, bot);
     expect((await put(call, AGENT, deck.encode())).status).toBe(403); // ada never sent anything to the room
-    contributors.push({ id: "human:ada", kind: "human", machine: false });
+    contributors.push({ id: "human.ada", kind: "human", machine: false });
     expect((await put(call, AGENT, deck.encode())).status).toBe(200);
     expect((await service.outline("t")).slides.map((s) => s.createdBy.name).sort()).toEqual(["ada", "bot"]);
   });
@@ -287,10 +300,33 @@ describe("a checkpoint keeps the author labels honest", () => {
   test("a name from another kind does not pass for the same person", async () => {
     const { call, service, contributors } = setup();
     await service.create({ title: "T", id: "t", author: ada });
-    contributors.push({ id: "agent_of_human:ada", kind: "agent_of_human", machine: true });
+    // The old colon id, and the dot id that a room writes now. Each one is a different key, so each one is refused.
+    for (const id of ["agent_of_human:ada", "agent_of_human.ada"]) {
+      contributors.splice(0, contributors.length, { id, kind: "agent_of_human", machine: true });
+      const deck = Deck.fromUpdate(await stateOf(call));
+      deck.addSlide({ layout: "blank" }, ada);
+      expect((await put(call, AGENT, deck.encode())).status, id).toBe(403);
+    }
+  });
+
+  test("a record whose kind does not match its id is not trusted", async () => {
+    const { call, service, contributors } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    // The id names the editor, but the room record says another kind. Such a record is not trusted.
+    contributors.push({ id: "human.ada", kind: "agent_of_human", machine: true });
     const deck = Deck.fromUpdate(await stateOf(call));
     deck.addSlide({ layout: "blank" }, ada);
     expect((await put(call, AGENT, deck.encode())).status).toBe(403);
+  });
+
+  test("a contributor with an old colon id keeps its label", async () => {
+    const { call, service, contributors } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    // A room written before this release keeps the colon id of its editor.
+    contributors.push({ id: "human:ada", kind: "human", machine: false });
+    const deck = Deck.fromUpdate(await stateOf(call));
+    deck.addSlide({ layout: "blank" }, ada);
+    expect((await put(call, AGENT, deck.encode())).status).toBe(200);
   });
 });
 
@@ -299,7 +335,7 @@ describe("a contributor whose token is removed", () => {
     const { call, service, contributors } = setup();
     await service.create({ title: "T", id: "t", author: ada });
     // Zed sent updates to the room before the token was removed from the configuration.
-    contributors.push({ id: "human:zed", kind: "human", machine: false });
+    contributors.push({ id: "human.zed", kind: "human", machine: false });
     const state = new Uint8Array(await (await call("GET", "/decks/t/state", { token: HUMAN })).arrayBuffer());
     const deck = Deck.fromUpdate(state);
     deck.addSlide({ layout: "blank" }, { kind: "human", name: "zed" });
@@ -314,7 +350,7 @@ describe("a viewer token does not make its name a trusted label", () => {
     const { call, service, contributors } = setup();
     await service.create({ title: "T", id: "t", author: ada });
     // Eve's token is a viewer's in the configuration, so she sent the room updates but cannot edit.
-    contributors.push({ id: "human:eve", kind: "human", machine: false });
+    contributors.push({ id: "human.eve", kind: "human", machine: false });
     const deck = Deck.fromUpdate(await service.state("t"));
     deck.addSlide({ layout: "blank" }, { kind: "human", name: "eve" });
     expect((await call("POST", "/decks/t/checkpoint", { token: AGENT, body: deck.encode() })).status).toBe(403);

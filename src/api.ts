@@ -5,7 +5,7 @@ import { COMMAND } from "./brand.js";
 import type { Realtime } from "agentic-realtime";
 import { acceptWebSocketProtocol, principalFromWebSocketRequest } from "agentic-identity/http";
 import { EraseRefusedError, MAX_OWNERS_ON_ERASE, ROLES, StoreConflictError, createSharing, type Auth, type Json, type PrincipalContext, type Role, type Store, type Subject } from "agentic-identity";
-import { DECK, DECK_ID, contextOf, roomPrincipals, subjectOf } from "./access.js";
+import { DECK, DECK_ID, contextOf, keyOfRoomPrincipal, roomPrincipalFits, roomPrincipalId, roomPrincipals, subjectOf } from "./access.js";
 import { ConfigError, NotGrantedError, type Authenticator, type Caller, type SlidesRole } from "./auth.js";
 import { SlidesError, fail, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
 import { toBase64 } from "./bytes.js";
@@ -105,6 +105,13 @@ const SHARE_ROUTE = /\/decks\/[^/]+\/(access|grants|invites|links)(\/|$)/;
 const ROOM_ROUTE = /\/decks\/[^/]+\/ws$/;
 /** The WebSocket subprotocol of this app. A browser also offers `agentic-slides.bearer.<token>`, which holds the token. */
 export const ROOM_PROTOCOL = "agentic-slides";
+
+/** Call the room for each id, so one failed call does not leave the other ids of the subject unchanged. It throws the first failure after all calls. */
+async function eachRoomPrincipal(ids: string[], call: (who: string) => Promise<unknown>): Promise<void> {
+  const results = await Promise.allSettled(ids.map(call));
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failed) throw failed.reason;
+}
 
 /** The room token helper needs an `Auth` port. This one wraps the app authenticator, and keeps the role for the request. */
 function roomAuth(auth: AppDeps["auth"]): { port: Auth; callers: WeakMap<PrincipalContext, Caller>; fault?: unknown } {
@@ -209,7 +216,9 @@ export function createApp({ service, auth, live, principals = [], trusted, store
     const id = c.req.param("deck");
     await service.exists(id); // a deck that does not exist has no room
     const { kind, name } = c.get("author");
-    const room = await live(c.env).connect(id, c.req.raw, { principal: { id: `${kind}:${name}`, kind }, role: c.get("role"), name });
+    // The room refuses an id that is too long. Refuse it here as a clean 403, not a 500 from the room.
+    if (!roomPrincipalFits(kind, name)) return c.json(failure("FORBIDDEN", "This name is too long for a live room."), 403);
+    const room = await live(c.env).connect(id, c.req.raw, { principal: { id: roomPrincipalId(kind, name), kind }, role: c.get("role"), name });
     // The browser closes the socket unless the answer names the subprotocol that it offered. The answer never names the entry with the token.
     return acceptWebSocketProtocol(c.req.raw, room, ROOM_PROTOCOL);
   });
@@ -226,7 +235,12 @@ export function createApp({ service, auth, live, principals = [], trusted, store
       // A token that was removed keeps its record in the room, but its label is no longer trusted.
       const seen = live ? (await live(c.env).meta(id)).contributors : [];
       const known: Principal[] = [];
-      for (const who of seen) if (configured.has(who.id) || (await trusted?.(who.id))) known.push(parsePrincipal(who.id));
+      for (const who of seen) {
+        const key = keyOfRoomPrincipal(who.id);
+        // The kind of the room record and the kind in the id must agree. A record that does not agree is not trusted.
+        if (!key.startsWith(`${who.kind}:`)) continue;
+        if (configured.has(key) || (await trusted?.(key))) known.push(parsePrincipal(key));
+      }
       const allowed = [c.get("author"), ...known];
       await service.checkpoint(id, update, allowed);
       return c.json({ ok: true });
@@ -385,7 +399,7 @@ export function createApp({ service, auth, live, principals = [], trusted, store
     await viaSharing(() => share.grant(contextFor(c), id, subject, input.role));
     // An open room keeps the role from connect time. The new role reaches it now. A lower role caps the sockets, and the room drops their writes.
     // A role that can write lifts the cap or the ban that an earlier change left.
-    if (live) for (const who of roomPrincipals(subject)) await live(c.env).updateRole(id, who, input.role === "owner" || input.role === "editor" ? null : "viewer");
+    if (live) await eachRoomPrincipal(roomPrincipals(subject), (who) => live(c.env).updateRole(id, who, input.role === "owner" || input.role === "editor" ? null : "viewer"));
     return c.json({ ok: true });
   });
   api.delete("/decks/:deck/grants", async (c) => {
@@ -395,7 +409,7 @@ export function createApp({ service, auth, live, principals = [], trusted, store
     const subject = { kind: input.subjectKind, id: input.subjectId };
     await viaSharing(() => share.revokeGrant(contextFor(c), id, subject));
     // The revoked caller leaves an open room at once, and the room refuses it until a grant lifts the ban.
-    if (live) for (const who of roomPrincipals(subject)) await live(c.env).revoke(id, who);
+    if (live) await eachRoomPrincipal(roomPrincipals(subject), (who) => live(c.env).revoke(id, who));
     return c.json({ ok: true });
   });
   // An invite sends no message. The owner gives the id to the person or the agent.
@@ -429,8 +443,9 @@ export function createApp({ service, auth, live, principals = [], trusted, store
     // A ban from an earlier revoke ends. An accept never lowers a role, so read the role that stands now: only a role that can write lifts the cap.
     const subject = subjectOf(callerOf(c));
     if (live && subject && typeof invite?.resourceId === "string") {
-      const now = await roleOf(store!, invite.resourceId, subject);
-      for (const who of roomPrincipals(subject)) await live(c.env).updateRole(invite.resourceId, who, now === "owner" || now === "editor" ? null : "viewer");
+      const resourceId = invite.resourceId;
+      const now = await roleOf(store!, resourceId, subject);
+      await eachRoomPrincipal(roomPrincipals(subject), (who) => live(c.env).updateRole(resourceId, who, now === "owner" || now === "editor" ? null : "viewer"));
     }
     return c.json({ ok: true });
   });
