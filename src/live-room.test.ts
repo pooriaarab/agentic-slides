@@ -300,8 +300,8 @@ describe("a checkpoint keeps the author labels honest", () => {
   test("a name from another kind does not pass for the same person", async () => {
     const { call, service, contributors } = setup();
     await service.create({ title: "T", id: "t", author: ada });
-    // The old colon id, which a room that has an old record still holds.
-    for (const id of ["agent_of_human:ada"]) {
+    // The old colon id, and the dot id that a room writes now. Each one is a different key, so each one is refused.
+    for (const id of ["agent_of_human:ada", "agent_of_human.ada"]) {
       contributors.splice(0, contributors.length, { id, kind: "agent_of_human", machine: true });
       const deck = Deck.fromUpdate(await stateOf(call));
       deck.addSlide({ layout: "blank" }, ada);

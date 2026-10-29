@@ -18,14 +18,14 @@ const VIEW = "view-token-0123456789-abcdefghijklm";
 const TOKENS = `${ADA}=human:ada,${BOB}=human:bob,${BOT}=agent:bot,${EVE}=agent_of_human:eve,${VIEW}=human:vic;viewer,${CLASH}=agent:agent_of_human_eve`;
 const BASE = "http://slides.test/api/v1/slides";
 
-function setup() {
+function setup(options: { failRevoke?: string } = {}) {
   const store = createMemoryStore();
   const service = createService({ store, blobs: createMemoryBlobs() });
   // A room stub that records what the routes tell it.
   const room: string[] = [];
   const live = {
     connect: async (id: string, _request: Request, grant: { principal: { id: string }; role: string }) => (roomId(grant.principal.id), room.push(`connect ${id} ${grant.principal.id} ${grant.role}`), new Response("joined", { status: 200 })),
-    revoke: async (id: string, who: string) => (roomId(who), room.push(`revoke ${id} ${who}`), { closed: 0, stored: true }),
+    revoke: async (id: string, who: string) => (roomId(who), room.push(`revoke ${id} ${who}`), who === options.failRevoke ? Promise.reject(new Error("room down")) : { closed: 0, stored: true }),
     updateRole: async (id: string, who: string, role: string | null) => (roomId(who), room.push(`role ${id} ${who} ${role}`), true),
     erase: async (id: string) => (room.push(`erase ${id}`), { sockets: 0 }),
     meta: async () => ({ updates: 0, compactions: 0, contributors: [] }),
@@ -321,6 +321,18 @@ describe("review fixes", () => {
       "role plan agent.agent_of_human_eve viewer",
       "role plan agent_of_human.eve viewer",
       "revoke plan human.bob",
+      "revoke plan agent.agent_of_human_eve",
+      "revoke plan agent_of_human.eve",
+    ]);
+  });
+
+  test("a room that fails one revoke still gets the revoke of every other id", async () => {
+    const { call, room } = setup({ failRevoke: "agent.agent_of_human_eve" });
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "agent", subjectId: "agent_of_human_eve", role: "viewer" } });
+    const revoked = await call("DELETE", "/decks/plan/grants?subjectKind=agent&subjectId=agent_of_human_eve", { token: ADA });
+    expect(revoked.status).toBe(500);
+    expect(room.filter((line) => line.startsWith("revoke"))).toEqual([
       "revoke plan agent.agent_of_human_eve",
       "revoke plan agent_of_human.eve",
     ]);

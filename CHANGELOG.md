@@ -15,6 +15,7 @@ This file lists the notable changes to this project, by version.
 ### Fixed
 
 - With `agentic-realtime` 0.4.2 or later, a connect to a live room, a grant, a revoke, or an invite on a live deck no longer answers 500 `INTERNAL`. The room refused the colon ids that the slides code sent. A revoke or a role change now skips an id that the room would refuse, so it cannot stop half way. An install that pins `agentic-realtime` 0.4.0 or 0.4.1 has no id check, so this error did not occur there.
+- A grant, a revoke, or a role change on a live deck calls the room for every id of the subject, even when the room fails one of the calls. The route then answers with the first failure.
 
 ### Upgrade
 

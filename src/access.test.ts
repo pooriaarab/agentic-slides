@@ -33,5 +33,6 @@ describe("room principal ids", () => {
   test("a room id maps back to its key, and an old key keeps its colon", () => {
     expect(keyOfRoomPrincipal("agent_of_human.eve")).toBe("agent_of_human:eve");
     expect(keyOfRoomPrincipal("human:ada.lovelace")).toBe("human:ada.lovelace");
+    expect(keyOfRoomPrincipal("human.ada.lovelace")).toBe("human:ada.lovelace");
   });
 });

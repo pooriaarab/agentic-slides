@@ -106,6 +106,13 @@ const ROOM_ROUTE = /\/decks\/[^/]+\/ws$/;
 /** The WebSocket subprotocol of this app. A browser also offers `agentic-slides.bearer.<token>`, which holds the token. */
 export const ROOM_PROTOCOL = "agentic-slides";
 
+/** Call the room for each id, so one failed call does not leave the other ids of the subject unchanged. It throws the first failure after all calls. */
+async function eachRoomPrincipal(ids: string[], call: (who: string) => Promise<unknown>): Promise<void> {
+  const results = await Promise.allSettled(ids.map(call));
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failed) throw failed.reason;
+}
+
 /** The room token helper needs an `Auth` port. This one wraps the app authenticator, and keeps the role for the request. */
 function roomAuth(auth: AppDeps["auth"]): { port: Auth; callers: WeakMap<PrincipalContext, Caller>; fault?: unknown } {
   const callers = new WeakMap<PrincipalContext, Caller>();
@@ -392,7 +399,7 @@ export function createApp({ service, auth, live, principals = [], trusted, store
     await viaSharing(() => share.grant(contextFor(c), id, subject, input.role));
     // An open room keeps the role from connect time. The new role reaches it now. A lower role caps the sockets, and the room drops their writes.
     // A role that can write lifts the cap or the ban that an earlier change left.
-    if (live) for (const who of roomPrincipals(subject)) await live(c.env).updateRole(id, who, input.role === "owner" || input.role === "editor" ? null : "viewer");
+    if (live) await eachRoomPrincipal(roomPrincipals(subject), (who) => live(c.env).updateRole(id, who, input.role === "owner" || input.role === "editor" ? null : "viewer"));
     return c.json({ ok: true });
   });
   api.delete("/decks/:deck/grants", async (c) => {
@@ -402,7 +409,7 @@ export function createApp({ service, auth, live, principals = [], trusted, store
     const subject = { kind: input.subjectKind, id: input.subjectId };
     await viaSharing(() => share.revokeGrant(contextFor(c), id, subject));
     // The revoked caller leaves an open room at once, and the room refuses it until a grant lifts the ban.
-    if (live) for (const who of roomPrincipals(subject)) await live(c.env).revoke(id, who);
+    if (live) await eachRoomPrincipal(roomPrincipals(subject), (who) => live(c.env).revoke(id, who));
     return c.json({ ok: true });
   });
   // An invite sends no message. The owner gives the id to the person or the agent.
@@ -436,8 +443,9 @@ export function createApp({ service, auth, live, principals = [], trusted, store
     // A ban from an earlier revoke ends. An accept never lowers a role, so read the role that stands now: only a role that can write lifts the cap.
     const subject = subjectOf(callerOf(c));
     if (live && subject && typeof invite?.resourceId === "string") {
-      const now = await roleOf(store!, invite.resourceId, subject);
-      for (const who of roomPrincipals(subject)) await live(c.env).updateRole(invite.resourceId, who, now === "owner" || now === "editor" ? null : "viewer");
+      const resourceId = invite.resourceId;
+      const now = await roleOf(store!, resourceId, subject);
+      await eachRoomPrincipal(roomPrincipals(subject), (who) => live(c.env).updateRole(resourceId, who, now === "owner" || now === "editor" ? null : "viewer"));
     }
     return c.json({ ok: true });
   });
