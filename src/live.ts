@@ -41,10 +41,14 @@ const CODES: Record<SlidesErrorCode, true> = {
   FORBIDDEN: true, INVALID_UPDATE: true, LIVE_UNAVAILABLE: true,
 };
 
-/** The server's error as a SlidesError. A code that this package does not know becomes LIVE_UNAVAILABLE. */
+/**
+ * The server's error as a SlidesError. A refused token is FORBIDDEN, as `whoAmI` maps it, even on a later call.
+ * A code that this package does not know becomes LIVE_UNAVAILABLE.
+ */
 async function refusal(response: Response, fallback: string): Promise<SlidesError> {
   const { error } = (await response.json().catch(() => ({}))) as { error?: { code?: unknown; message?: unknown } };
-  const code = typeof error?.code === "string" && Object.hasOwn(CODES, error.code) ? (error.code as SlidesErrorCode) : "LIVE_UNAVAILABLE";
+  const known = typeof error?.code === "string" && Object.hasOwn(CODES, error.code) ? (error.code as SlidesErrorCode) : "LIVE_UNAVAILABLE";
+  const code = response.status === 401 || response.status === 403 ? "FORBIDDEN" : known;
   const message = typeof error?.message === "string" ? error.message : `${fallback} (${response.status})`;
   return new SlidesError([{ code, message }]);
 }
@@ -71,7 +75,8 @@ async function ask(server: string, token: string, path: string, init: RequestIni
   const attempts = init.method === "POST" && path === "/decks" ? 1 : 2;
   for (let attempt = 1; ; attempt++) {
     try {
-      return await fetch(`${base(server)}${path}`, { ...init, headers: { ...init.headers, authorization: `Bearer ${token}` } });
+      // A redirect is an error. Following it would send the token on, and read a reply from an address that was never checked.
+      return await fetch(`${base(server)}${path}`, { ...init, redirect: "error", headers: { ...init.headers, authorization: `Bearer ${token}` } });
     } catch (error) {
       // A server may close a connection that sat idle, and Node reuses it. One more try opens a new connection.
       const closed = (error as { cause?: { code?: unknown } }).cause?.code === "UND_ERR_SOCKET";

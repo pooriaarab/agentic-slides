@@ -4,7 +4,7 @@ import { z } from "zod";
 import { COMMAND } from "./brand.js";
 import type { Realtime } from "agentic-realtime";
 import { ConfigError, type Authenticator, type SlidesRole } from "./auth.js";
-import { PRINCIPAL_KINDS, SlidesError, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
+import { SlidesError, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
 import { toBase64 } from "./bytes.js";
 import { CSP } from "./render/html.js";
 import { PRESENT_CSP } from "./render/present.js";
@@ -17,6 +17,8 @@ export interface AppDeps {
   auth: Authenticator;
   /** Makes the live room server from the Worker bindings. Without it, the room route answers 404. */
   live?: (env: unknown) => Realtime;
+  /** The people and agents that the editor tokens name now. A checkpoint trusts a label only from these. Without it, none is trusted. */
+  principals?: Principal[];
 }
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
@@ -49,7 +51,8 @@ const body = {
 const failure = (code: string, message: string, extra: object = {}) => ({ error: { code, message, ...extra } });
 
 /** The HTTP API under /api/v1/slides. It mirrors the CLI. The caller's token names the author of each edit. */
-export function createApp({ service, auth, live }: AppDeps) {
+export function createApp({ service, auth, live, principals = [] }: AppDeps) {
+  const configured = new Set(principals.map((who) => `${who.kind}:${who.name}`));
   const app = new Hono<{ Variables: { author: Principal; role: SlidesRole } }>();
   app.use("*", async (c, next) => {
     await next();
@@ -95,9 +98,10 @@ export function createApp({ service, auth, live }: AppDeps) {
       const id = c.req.param("deck");
       const update = new Uint8Array(await c.req.arrayBuffer());
       await service.exists(id);
-      // The room knows who sent updates, from the tokens. Those people and agents may label a change, with the caller.
+      // The room knows who sent updates. Those people and agents may label a change, with the caller, while a configured token still names them.
+      // A token that was removed keeps its record in the room, but its label is no longer trusted.
       const seen = live ? (await live(c.env).meta(id)).contributors : [];
-      const allowed = [c.get("author"), ...seen.flatMap((who) => (PRINCIPAL_KINDS.includes(who.kind) ? [parsePrincipal(who.id)] : []))];
+      const allowed = [c.get("author"), ...seen.filter((who) => configured.has(who.id)).map((who) => parsePrincipal(who.id))];
       await service.checkpoint(id, update, allowed);
       return c.json({ ok: true });
     },

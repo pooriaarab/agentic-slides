@@ -1,6 +1,6 @@
 import type { DeckOutline, SlideOutline } from "./deck.js";
-import { COLOR_TOKENS, SLIDE_HEIGHT, SLIDE_WIDTH, checkTheme, isLayout } from "./layouts.js";
-import { checkImageSrc } from "./model.js";
+import { COLOR_TOKENS, SLIDE_HEIGHT, SLIDE_WIDTH, checkTheme, isLayout, tableFits, textFit } from "./layouts.js";
+import { checkImageSrc, runsText, type Run } from "./model.js";
 import { fail, type Principal } from "./principal.js";
 
 // A live room holds a deck that clients wrote with no check. These functions judge a deck state before the server saves it.
@@ -42,13 +42,19 @@ export function checkDeckState(outline: DeckOutline): void {
         const runs = e.runs;
         if (!Array.isArray(runs) || !runs.every((r) => typeof r?.text === "string")) fail("BAD_PATCH", "the text of an element is missing", at);
         if (!num(e.fontSize) || e.fontSize <= 0 || !token(e.color) || typeof e.list !== "boolean") fail("BAD_PATCH", "a text element needs fontSize, color, and list", at);
+        // The fit rule that an edit runs. A checkpoint must not save text that overflows its box.
+        const plain = runsText(runs as Run[]);
+        const fit = textFit(plain.split("\n"), { x: x!, y: y!, w: w!, h: h! }, e.fontSize as number);
+        if (plain !== "" && fit.needed > fit.available) fail("TEXT_OVERFLOW", `the text needs ${fit.needed} line(s), the box holds ${fit.available}`, at);
       } else if (kind === "shape") {
         if ((e.shape !== "rect" && e.shape !== "ellipse") || !token(e.fill)) fail("BAD_PATCH", "a shape needs a known shape and a fill token", at);
       } else if (kind === "image") {
         if (typeof e.alt !== "string") fail("BAD_PATCH", "alt must be a string", at);
         checkImageSrc(e.src as string);
-      } else if (!Array.isArray(e.rows) || !e.rows.every((r) => Array.isArray(r) && r.every((c) => typeof c === "string"))) {
-        fail("BAD_PATCH", "rows must be an array of string arrays", at);
+      } else {
+        if (!Array.isArray(e.rows) || !e.rows.every((r) => Array.isArray(r) && r.every((c) => typeof c === "string"))) fail("BAD_PATCH", "rows must be an array of string arrays", at);
+        // The table fit rule that an edit runs.
+        if (!tableFits(e.rows as string[][], { x: x!, y: y!, w: w!, h: h! })) fail("TEXT_OVERFLOW", "the table does not fit the box", at);
       }
     }
   }

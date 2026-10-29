@@ -343,8 +343,9 @@ export class Deck {
       if (patch.rows !== undefined) {
         const valid = Array.isArray(patch.rows) && patch.rows.every((r) => Array.isArray(r) && r.every((c) => typeof c === "string"));
         if (!valid) fail("BAD_PATCH", "rows must be an array of string arrays");
-        if (!tableFits(patch.rows, box)) fail("TEXT_OVERFLOW", "the table does not fit the box");
       }
+      // The fit of a table holds for its rows and its box, so a box-only patch is checked too.
+      if (kind === "table" && !tableFits((patch.rows ?? element.get("rows")) as string[][], box)) fail("TEXT_OVERFLOW", "the table does not fit the box");
       if (patch.src !== undefined) checkImageSrc(patch.src);
       for (const [key, value] of Object.entries(patch)) if (key !== "text" && value !== undefined) element.set(key, value);
       element.set("editedBy", who);
