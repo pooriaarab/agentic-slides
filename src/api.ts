@@ -159,8 +159,8 @@ export function createApp({ service, auth, live }: AppDeps) {
       return c.json(failure("BAD_REQUEST", "The request body is not valid.", { issues: error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) }), 400);
     }
     if (error instanceof SyntaxError) return c.json(failure("BAD_REQUEST", "The request body must be JSON."), 400);
-    // Log the error name only: a message can hold slide text.
-    console.error(`unhandled ${error.name}`);
+    // Log the name. Log the message only for a D1 error: it holds a reference, not slide text.
+    console.error(`unhandled ${error.name}`, error.message.startsWith("D1_ERROR") ? error.message : "");
     return c.json(failure("INTERNAL", "The server could not finish the request."), 500);
   });
   return app;

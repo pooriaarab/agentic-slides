@@ -61,7 +61,7 @@ A Cloudflare Worker (Hono) serves `/api/v1/slides`. It mirrors the CLI. Set toke
 Each token names who edits, so a client cannot claim a different kind:
 
 ```sh
-npx wrangler dev --var SLIDES_REGION:unknown \
+WRANGLER_SEND_METRICS=false npx wrangler dev --var SLIDES_REGION:unknown \
   --var 'SLIDES_TOKENS:my-long-token-0123456789-abcdefghij=agent_of_human:bot'
 
 curl -s -X POST localhost:8787/api/v1/slides/decks \
