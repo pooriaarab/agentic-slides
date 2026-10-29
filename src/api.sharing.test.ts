@@ -502,6 +502,45 @@ describe("third review fixes", () => {
   });
 });
 
+describe("fourth review fixes", () => {
+  test("a downgrade, then an accepted invite for the lower role, keeps the room read only", async () => {
+    const { call, room } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "agent", subjectId: "bot", role: "editor" } });
+    const { id } = (await call("POST", "/decks/plan/invites", { token: ADA, body: { role: "viewer", handle: "bot" } })).json;
+    await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "agent", subjectId: "bot", role: "viewer" } });
+    room.length = 0;
+    expect((await call("POST", "/invites/accept", { token: BOT, body: { id } })).status).toBe(200);
+    expect(room).toEqual(["role plan agent:bot viewer"]);
+  });
+
+  test("a list that stops at its scan limit puts the cursor after the last deck that it returns", async () => {
+    const { call } = setup();
+    for (let n = 0; n < 205; n++) await call("POST", "/decks", { token: ADA, body: { title: `d${n}`, id: `old${n}` } });
+    await call("POST", "/decks", { token: ADA, body: { title: "Mine", id: "mine" } });
+    await call("POST", "/decks/mine/grants", { token: ADA, body: { subjectKind: "human", subjectId: "bob", role: "viewer" } });
+    const page = await call("GET", "/decks?limit=5", { token: BOB });
+    expect(page.json.decks.map((d: { id: string }) => d.id)).toEqual(["mine"]);
+    expect(JSON.parse(Buffer.from(page.json.nextCursor, "base64url").toString())[1]).toBe("mine");
+    // The cursor works.
+    expect((await call("GET", `/decks?limit=5&cursor=${encodeURIComponent(page.json.nextCursor)}`, { token: BOB })).status).toBe(200);
+  }, 60_000);
+
+  test("a caller with no role writes no audit row on any deck route, and a link needs the deck of its URL", async () => {
+    const { call, store } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "A", id: "a" } });
+    await call("POST", "/decks", { token: ADA, body: { title: "B", id: "b" } });
+    const rows = async () => (await store.query("audit", { limit: 200 })).items.length;
+    const before = await rows();
+    for (let n = 0; n < 3; n++) expect((await call("GET", "/decks/a", { token: BOB })).status).toBe(404);
+    expect(await rows()).toBe(before);
+    const link = (await call("POST", "/decks/b/links", { token: ADA, body: { role: "viewer" } })).json;
+    expect((await call("DELETE", `/decks/a/links/${link.id}`, { token: ADA })).status).toBe(403);
+    expect((await call("GET", "/shared/b", { headers: { "x-link-token": link.token } })).status).toBe(200);
+    expect((await call("DELETE", `/decks/b/links/${link.id}`, { token: ADA })).status).toBe(200);
+  });
+});
+
 describe("without a store", () => {
   test("the token role is the only check, and the share routes say sharing is off", async () => {
     const app = createApp({ service: createService({ store: createMemoryStore(), blobs: createMemoryBlobs() }), auth: tokenAuth(parseTokens(TOKENS)) });

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { COMMAND } from "./brand.js";
 import type { Realtime } from "agentic-realtime";
 import { acceptWebSocketProtocol, principalFromWebSocketRequest } from "agentic-identity/http";
-import { EraseRefusedError, ROLES, StoreConflictError, createSharing, type Auth, type Json, type PrincipalContext, type Store } from "agentic-identity";
+import { EraseRefusedError, ROLES, StoreConflictError, createSharing, type Auth, type Json, type PrincipalContext, type Role, type Store, type Subject } from "agentic-identity";
 import { DECK, DECK_ID, contextOf, roomPrincipals, subjectOf } from "./access.js";
 import { ConfigError, type Authenticator, type Caller, type SlidesRole } from "./auth.js";
 import { SlidesError, fail, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
@@ -13,7 +13,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { CSP } from "./render/html.js";
 import { PRESENT_CSP } from "./render/present.js";
 import { decodeImages, images, patch } from "./schemas.js";
-import { MAX_LIVE_BYTES, type Service } from "./service.js";
+import { MAX_LIVE_BYTES, deckCursor, type Service } from "./service.js";
 import { VERSION } from "./version.js";
 
 export interface AppDeps {
@@ -62,6 +62,13 @@ const body = {
   access: z.object({ limit: z.coerce.number().int().min(1).max(200).optional(), cursor: z.string().min(1).max(2000).optional(), inviteCursor: z.string().min(1).max(2000).optional(), linkCursor: z.string().min(1).max(2000).optional() }),
   accept: z.object({ id: z.string().min(1).max(128) }),
 };
+
+/** The valid role that a subject holds on a deck: a plain read, with no audit row. A role that identity does not honor is no role. */
+async function roleOf(store: Store, deck: string, subject: Subject): Promise<Role | null> {
+  const found = await store.query<{ role?: string }>("grants", { where: { resourceId: deck, subjectKind: subject.kind, subjectId: subject.id }, limit: 1 });
+  const role = found.items[0]?.data.role;
+  return (ROLES as readonly unknown[]).includes(role) ? (role as Role) : null;
+}
 
 const SHARE_ERROR = /^(invalid|give an|expiresAt|expiresInMs|the last owner|limit must)/;
 /** Runs sharing code. Its plain errors become slides errors. Any other failure passes on as it is. */
@@ -169,22 +176,17 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
       return c.json(failure("FORBIDDEN", "This deck has no owner, so it cannot be shared."), 403);
     }
     const ctx = contextOf(callerOf(c));
-    const decision = owned.type === DECK && ctx ? await sharing.can(ctx, actionOf(c.req.method, c.req.path.replace(/^.*?\/decks\/[^/]+/, "")), id) : { allowed: false };
-    if (!decision.allowed && !("role" in decision && decision.role) && ctx && owned.type === DECK) {
-      // The scope of the token can stop an action before the role is read. A caller with a role gets 403, not the answer for a missing deck.
-      // A plain read of the grant, so no audit row says that the caller did something that its token cannot do.
-      const subject = subjectOf(callerOf(c));
-      const grant = subject && (await store.query<{ role?: string }>("grants", { where: { resourceId: id, subjectKind: subject.kind, subjectId: subject.id }, limit: 1 })).items[0];
-      if (grant && (ROLES as readonly unknown[]).includes(grant.data.role)) return c.json(failure("FORBIDDEN", "This token cannot do this. It may only read."), 403);
-    }
+    // A plain read of the grant comes first. A caller with no role gets the answer for a missing deck, and no audit row: a loop of such calls cannot fill the audit.
+    const subject = subjectOf(callerOf(c));
+    const held = owned.type === DECK && ctx && subject && (await roleOf(store, id, subject));
+    if (!held || !ctx) return c.json(failure("NO_DECK", `no deck "${id}"`), 404);
+    const decision = await sharing.can(ctx, actionOf(c.req.method, c.req.path.replace(/^.*?\/decks\/[^/]+/, "")), id);
     if (!decision.allowed) {
-      return "role" in decision && decision.role
-        ? c.json(failure("FORBIDDEN", `This caller is ${decision.role === "owner" ? "an owner" : `a ${decision.role}`} of the deck. It cannot do this.`), 403)
-        : c.json(failure("NO_DECK", `no deck "${id}"`), 404);
+      // The caller has a role. Its role or its token scope is too low.
+      return c.json(failure("FORBIDDEN", `This caller is ${held === "owner" ? "an owner" : `a ${held}`} of the deck. It cannot do this.`), 403);
     }
     // The room gets the role to match: only an editor or an owner may write there.
-    const role = (decision as { role?: string }).role;
-    c.set("role", role === "owner" || role === "editor" ? c.get("role") : "viewer");
+    c.set("role", held === "owner" || held === "editor" ? c.get("role") : "viewer");
     await next();
   });
 
@@ -268,7 +270,12 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
         if (!owned || (owned.type === DECK && held.has(deck.id))) decks.push(deck);
       }
       next = page.nextCursor;
-      if (decks.length >= limit || next === undefined || scanned >= MAX_SCANNED) break;
+      if (decks.length >= limit || next === undefined) break;
+      if (scanned >= MAX_SCANNED) {
+        // Stop here. With a deck to return, the cursor stands after it. With none, only the cursor of the last deck that was read is left.
+        if (decks.length > 0) next = deckCursor(decks[decks.length - 1]!);
+        break;
+      }
     }
     return c.json({ decks, ...(next === undefined ? {} : { nextCursor: next }) });
   });
@@ -385,6 +392,9 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
   });
   api.delete("/decks/:deck/links/:link", async (c) => {
     const share = needSharing();
+    // The link must belong to the deck of the URL.
+    const link = await store!.get<{ resourceId?: string }>("links", c.req.param("link"));
+    if (link?.resourceId !== c.req.param("deck")) return fail("FORBIDDEN", "This deck has no such link.");
     await viaSharing(() => share.revokeLink(contextFor(c), c.req.param("link")));
     return c.json({ ok: true });
   });
@@ -396,9 +406,12 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     if (c.get("author").kind !== "agent") return fail("FORBIDDEN", "Only an agent token can accept an invite by handle.");
     const invite = await store!.get<{ resourceId?: string; role?: string }>("invites", id);
     await viaSharing(() => share.acceptInvite(contextFor(c), id, { handle: c.get("author").name }));
-    // A ban from an earlier revoke ends. An accept never lowers a role, so the room needs no cap: a socket that is open keeps the role that it has.
+    // A ban from an earlier revoke ends. An accept never lowers a role, so read the role that stands now: only a role that can write lifts the cap.
     const subject = subjectOf(callerOf(c));
-    if (live && subject && typeof invite?.resourceId === "string") for (const who of roomPrincipals(subject)) await live(c.env).updateRole(invite.resourceId, who, null);
+    if (live && subject && typeof invite?.resourceId === "string") {
+      const now = await roleOf(store!, invite.resourceId, subject);
+      for (const who of roomPrincipals(subject)) await live(c.env).updateRole(invite.resourceId, who, now === "owner" || now === "editor" ? null : "viewer");
+    }
     return c.json({ ok: true });
   });
 
