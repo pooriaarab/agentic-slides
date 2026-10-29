@@ -271,6 +271,18 @@ describe("room token as a subprotocol", () => {
     expect((await call("GET", "/decks/x/ws", { headers: offer(HUMAN) })).status).toBe(404);
     expect((await call("GET", "/decks/x/ws", { headers: offer(`${HUMAN}x`) })).status).toBe(401);
     expect((await call("GET", "/decks/x/ws", { headers: { upgrade: "websocket", "sec-websocket-protocol": "chat, other" } })).status).toBe(401);
+    // The bare name must be offered too, and two token entries are refused.
+    const entry = `agentic-slides.bearer.${Buffer.from(HUMAN).toString("base64url")}`;
+    expect((await call("GET", "/decks/x/ws", { headers: { upgrade: "websocket", "sec-websocket-protocol": entry } })).status).toBe(401);
+    expect((await call("GET", "/decks/x/ws", { headers: { upgrade: "websocket", "sec-websocket-protocol": `agentic-slides, ${entry}, ${entry}` } })).status).toBe(401);
+  });
+
+  test("a viewer token joins the room route, and a token the room cannot carry is refused at setup", async () => {
+    const viewer = "viewer-token-0123456789-abcdefghij";
+    const view = appFor(`${TOKENS},${viewer}=human:eve;viewer`);
+    expect((await view("GET", "/decks/x/ws", { headers: offer(viewer) })).status).toBe(404);
+    expect(() => parseTokens(`dotted.token-0123456789-abcdefghij12=human:ada`)).toThrow();
+    expect(() => parseTokens(`${"a".repeat(513)}=human:ada`)).toThrow();
   });
 
   test("no other route reads it, and a header beats it", async () => {
