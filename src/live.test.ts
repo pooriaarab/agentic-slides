@@ -70,6 +70,14 @@ describe("a redirect and a refused token are not read as a live server", () => {
     const url = await fake({ [ME]: () => agent, [route]: () => ({ status: 401, body: { error: { code: "UNAUTHORIZED", message: "Send a valid bearer token." } } }) });
     await expect(run(url)).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
+
+  test.each([
+    ["a 403 with an unknown code", { status: 403, body: { error: { code: "SOMETHING_NEW", message: "no" } } }],
+    ["a 403 with no JSON body, as a proxy may send", { status: 403 }],
+  ])("%s is FORBIDDEN", async (_label, reply) => {
+    const url = await fake({ [ME]: () => agent, "GET /api/v1/slides/decks/d/state": () => reply });
+    await expect(createLiveService({ server: url, token: TOKEN }).outline("d")).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
 });
 
 describe("a live call fails before it opens a room", () => {

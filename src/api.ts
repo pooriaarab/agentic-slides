@@ -17,7 +17,7 @@ export interface AppDeps {
   auth: Authenticator;
   /** Makes the live room server from the Worker bindings. Without it, the room route answers 404. */
   live?: (env: unknown) => Realtime;
-  /** The people and agents that the configured tokens name now. A checkpoint trusts a label only from these. Without it, none is trusted. */
+  /** The people and agents that the editor tokens name now. A checkpoint trusts a label only from these. Without it, none is trusted. */
   principals?: Principal[];
 }
 

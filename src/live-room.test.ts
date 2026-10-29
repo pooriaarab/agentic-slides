@@ -29,7 +29,8 @@ function setup(options: { live?: boolean } = {}) {
   };
   const service = createService({ store: createMemoryStore(), blobs: createMemoryBlobs() });
   const tokens = parseTokens(TOKENS);
-  const app = createApp({ service, auth: tokenAuth(tokens), principals: tokens.map(([, caller]) => caller.author), live: options.live === false ? undefined : () => live });
+  const principals = tokens.filter(([, caller]) => caller.role === "editor").map(([, caller]) => caller.author);
+  const app = createApp({ service, auth: tokenAuth(tokens), principals, live: options.live === false ? undefined : () => live });
   const call = (method: string, path: string, init: { token?: string; body?: BodyInit | Uint8Array; headers?: Record<string, string> } = {}) =>
     app.request(`${BASE}${path}`, { method, headers: { ...(init.token ? { authorization: `Bearer ${init.token}` } : {}), ...init.headers }, body: init.body as BodyInit | undefined });
   return { service, call, grants, app, contributors };
@@ -275,7 +276,35 @@ describe("a contributor whose token is removed", () => {
   });
 });
 
+describe("a viewer token does not make its name a trusted label", () => {
+  test("a name whose token only reads cannot label a change in a checkpoint", async () => {
+    const { call, service, contributors } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    // Eve's token is a viewer's in the configuration, so she sent the room updates but cannot edit.
+    contributors.push({ id: "human:eve", kind: "human", machine: false });
+    const deck = Deck.fromUpdate(await service.state("t"));
+    deck.addSlide({ layout: "blank" }, { kind: "human", name: "eve" });
+    expect((await call("POST", "/decks/t/checkpoint", { token: AGENT, body: deck.encode() })).status).toBe(403);
+    expect((await service.outline("t")).slides).toHaveLength(0);
+  });
+});
+
 describe("a checkpoint runs the text-fit check that an edit runs", () => {
+  test("a table that does not fit its box is refused as TEXT_OVERFLOW, and the stored deck stays as it was", async () => {
+    const { call, service } = setup();
+    await service.create({ title: "T", id: "t", author: ada });
+    await service.addSlides("t", { outline: "|a|b|\n|c|d|", author: ada });
+    const before = await service.outline("t");
+    const deck = Deck.fromUpdate(await service.state("t"));
+    const slide = deck.doc.getMap("slides").get(deck.doc.getArray<string>("order").get(0)!) as Y.Map<unknown>;
+    const table = (slide.get("elements") as Y.Array<Y.Map<unknown>>).toArray().find((e) => e.get("kind") === "table")!;
+    table.set("rows", Array.from({ length: 200 }, () => ["x", "y"]));
+    const response = await call("POST", "/decks/t/checkpoint", { token: HUMAN, body: deck.encode() });
+    expect(response.status).toBe(422);
+    expect((await json(response)).error.code).toBe("TEXT_OVERFLOW");
+    expect(await service.outline("t")).toEqual(before);
+  });
+
   test("text that does not fit its box is refused as TEXT_OVERFLOW, and the stored deck stays as it was", async () => {
     const { call, service } = setup();
     await service.create({ title: "T", id: "t", author: ada });

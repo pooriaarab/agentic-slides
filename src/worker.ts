@@ -28,7 +28,8 @@ export type LiveFactory = (env: never, region: Region) => Realtime;
 function tokensOf(config: string | undefined): { auth: Authenticator; principals: Principal[] } {
   try {
     const tokens = parseTokens(config);
-    return { auth: tokenAuth(tokens), principals: tokens.map(([, caller]) => caller.author) };
+    // A viewer's token cannot write, so its name is no trusted label.
+    return { auth: tokenAuth(tokens), principals: tokens.filter(([, caller]) => caller.role === "editor").map(([, caller]) => caller.author) };
   } catch (error) {
     if (!(error instanceof ConfigError)) throw error;
     return {

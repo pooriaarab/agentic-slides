@@ -1,5 +1,5 @@
 import type { DeckOutline, SlideOutline } from "./deck.js";
-import { COLOR_TOKENS, SLIDE_HEIGHT, SLIDE_WIDTH, checkTheme, isLayout, textFit } from "./layouts.js";
+import { COLOR_TOKENS, SLIDE_HEIGHT, SLIDE_WIDTH, checkTheme, isLayout, tableFits, textFit } from "./layouts.js";
 import { checkImageSrc, runsText, type Run } from "./model.js";
 import { fail, type Principal } from "./principal.js";
 
@@ -51,8 +51,10 @@ export function checkDeckState(outline: DeckOutline): void {
       } else if (kind === "image") {
         if (typeof e.alt !== "string") fail("BAD_PATCH", "alt must be a string", at);
         checkImageSrc(e.src as string);
-      } else if (!Array.isArray(e.rows) || !e.rows.every((r) => Array.isArray(r) && r.every((c) => typeof c === "string"))) {
-        fail("BAD_PATCH", "rows must be an array of string arrays", at);
+      } else {
+        if (!Array.isArray(e.rows) || !e.rows.every((r) => Array.isArray(r) && r.every((c) => typeof c === "string"))) fail("BAD_PATCH", "rows must be an array of string arrays", at);
+        // The table fit rule that an edit runs.
+        if (!tableFits(e.rows as string[][], { x: x!, y: y!, w: w!, h: h! })) fail("TEXT_OVERFLOW", "the table does not fit the box", at);
       }
     }
   }
