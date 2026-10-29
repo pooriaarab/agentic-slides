@@ -33,7 +33,7 @@ async function call(method: string, path: string, options: { token?: string; bod
 const json = async (response: Response) => (await response.json()) as Record<string, any>;
 
 // Workers that share `persist` share one local D1 database and R2 bucket, as two instances share the real ones.
-async function start(): Promise<string> {
+async function start(attempts = 3): Promise<string> {
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
   let log = "";
@@ -45,9 +45,14 @@ async function start(): Promise<string> {
   workers.push({ server, base: url });
   server.stdout?.on("data", (chunk: Buffer) => (log += chunk));
   server.stderr?.on("data", (chunk: Buffer) => (log += chunk));
-  for (let i = 0; i < 180; i++) {
+  for (let i = 0; i < 180 && server.exitCode === null; i++) {
     if (await fetch(`${url}/health`).then((r) => r.ok, () => false)) return url;
     await new Promise((r) => setTimeout(r, 500));
+  }
+  // freePort() releases its port before wrangler binds it, so another process can take it first. Try a new port.
+  if (log.includes("Address already in use") && attempts > 1) {
+    await stop({ server });
+    return start(attempts - 1);
   }
   throw new Error(`wrangler dev did not start:\n${log.slice(-2000)}`);
 }
