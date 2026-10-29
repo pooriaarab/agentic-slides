@@ -131,6 +131,17 @@ describe("slidesAccount", () => {
     expect((await sharing.can(ctx(ana), "read", "mine")).allowed).toBe(false);
   });
 
+  it("treats a delegated subject as the delegated token only", async () => {
+    const { store, decks, make } = await setup();
+    await make("d", { kind: "human", id: "bo" });
+    await decks.addSlides("d", { outline: "# A", author: { kind: "agent", name: "agent_of_human_eve" } });
+    const eve: Subject = { kind: "agent", id: "agent_of_human_eve" };
+
+    expect((await exportOf(store, eve)).authored).toEqual([]);
+    await slidesAccount.eraseAccount(eve, { store });
+    expect((await decks.outline("d")).slides[0]!.createdBy).toEqual({ kind: "agent", name: "agent_of_human_eve" });
+  });
+
   it("keeps the kind of an erased agent author", async () => {
     const { store, decks, make } = await setup();
     await make("d", { kind: "human", id: "bo" });

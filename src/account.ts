@@ -60,6 +60,12 @@ async function grantsOf(store: Store, subject: Subject) {
   return found;
 }
 
+/** The authors of a subject. A subject with a delegated id stands for the delegated token only: a plain `agent` with that name is another principal. */
+const authorsOf = (subject: Subject) => {
+  const all = principalsOf(subject);
+  return all.length > 1 ? all.slice(1) : all;
+};
+
 export const slidesAccount: SlidesAccount = {
   id: "slides",
   async exportAccount(subject, { store }) {
@@ -71,7 +77,7 @@ export const slidesAccount: SlidesAccount = {
       const saved = await store.get<{ update: string }>(COLLECTION, deckId);
       if (saved) decks.push({ id: deckId, role: "owner", outline: Deck.fromUpdate(fromBase64(saved.update)).outline() as unknown as Json });
     }
-    const authors = principalsOf(who);
+    const authors = authorsOf(who);
     const authored: unknown[] = [];
     for await (const { id, data } of pages(store, COLLECTION)) {
       if (owned.has(id) || typeof data.update !== "string") continue;
@@ -113,7 +119,7 @@ export const slidesAccount: SlidesAccount = {
       await sharing.deleteResource(ctx, deckId);
       counts.grants++;
     }
-    const authors = principalsOf(who);
+    const authors = authorsOf(who);
     for await (const { id } of pages(store, COLLECTION)) {
       // One deck at a time in a transaction, so a write from another caller makes it run again.
       counts.authored += await store.transaction(async (tx) => {
