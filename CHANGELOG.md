@@ -6,8 +6,9 @@ This file lists the notable changes to this project, by version.
 
 ### Breaking changes
 
-- None. The HTTP API, the SDK, the CLI, and the MCP server keep their routes and their names. Hosts that deploy
-  with `wrangler.jsonc` need one step, which is in "Changed".
+- None in the HTTP API, the SDK, the CLI, or the MCP server. Their routes and names stay the same.
+- One deploy step is required. Run `npm run build` before `wrangler deploy`. Without it, `wrangler.jsonc` points
+  at a `dist/ui` folder that does not exist, so the Worker has no UI to serve. See "Changed".
 
 ### Added
 
@@ -23,6 +24,7 @@ This file lists the notable changes to this project, by version.
 - `wrangler.jsonc` serves the UI from `./dist/ui` as static assets. Run `npm run build` before `wrangler deploy`,
   so that `dist/ui` exists to serve.
 - `npm run build` also bundles the UI. `prepack` runs it, so the npm package has `dist/ui`.
+- The package ships the licenses of the UI fonts and of the code in the UI bundle, in `dist/ui/licenses`.
 - `npm run ci:local` runs the browser tests too (`npm run e2e`). Run `npx playwright install chromium` once first.
 - The CI workflow runs `npm run e2e` after `npm test`.
 
