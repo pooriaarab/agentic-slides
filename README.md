@@ -322,7 +322,7 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
   bytes are the same on every run. Han, Arabic, Indic, and other scripts become `?` and are
   listed in `warnings`. The PDF has no tags yet.
 - The Worker keeps decks in D1 and images in R2. Create both in the EU (see `wrangler.jsonc`). It declares the `eu` region and refuses a D1 query that D1 does not report as served in the EU. `SLIDES_REGION:unknown` turns that check off, for local runs only. Any valid token can read every deck, and an editor token can change every deck: there is no owner and no per-deck role yet, so do not use it for more than one tenant.
-- A token has 32 or more characters. A request holds at most 20 images, 10 MB each, and 32 MB in all.
+- A token has 32 to 512 characters, from A-Z a-z 0-9 _ -. A principal name starts with a letter, a digit, `_`, or `-`, then uses only A-Z a-z 0-9 . _ -, and has 1 to 128 characters. A request holds at most 20 images, 10 MB each, and 32 MB in all.
 - A change reaches the room before the server checks the size, so an edit that makes a deck too large for a room stays in the room and makes every save fail until someone removes it.
 - A live room and the HTTP API are two copies of a deck. A CLI or MCP call in a live room saves after each change, so the HTTP API sees it at once. An HTTP edit reaches a room on the next join, not at once. Save a room with a checkpoint.
 - A checkpoint holds at most 1.5 MiB. A deck over that cannot go in a room.
