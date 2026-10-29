@@ -59,3 +59,10 @@ export function checkDeckSize(outline: DeckOutline, limits: Limits): void {
   const elements = outline.slides.reduce((sum, s) => sum + s.elements.length, 0);
   if (elements > limits.maxElements) fail("EXPORT_LIMIT", `the deck has ${elements} elements, the limit is ${limits.maxElements}`);
 }
+
+/** The type of a PNG or JPEG file, from its first bytes. Any other file is refused. */
+export function sniff(data: Uint8Array): string {
+  if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) return "image/png";
+  if (data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return "image/jpeg";
+  return fail("UNSUPPORTED_IMAGE", "images must be PNG or JPEG files");
+}

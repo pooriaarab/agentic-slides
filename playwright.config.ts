@@ -34,6 +34,7 @@ export default defineConfig({
   use: { viewport: { width: 1280, height: 800 }, screenshot: "off", trace: "off" },
   projects: [
     { name: "flows", testMatch: "flows.spec.ts", use: { baseURL: `http://127.0.0.1:${PORT}` } },
+    { name: "host", testMatch: "host.spec.ts" },
     { name: "views", testMatch: "views.spec.ts", use: { baseURL: `http://127.0.0.1:${PORT + 2}` } },
   ],
   webServer: [worker(PORT), worker(PORT + 2)],

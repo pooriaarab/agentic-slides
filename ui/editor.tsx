@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Button, Dialog, DialogClose, EmptyState, Input, PlusIcon, PresenceChip, PresenceStack, Select, Textarea, Toolbar, ToolbarButton, ToolbarSeparator, useToast } from "agentic-design/react";
 import { COLOR_TOKENS, LAYOUT_NAMES } from "../src/core/layouts.js";
-import type { DeckOutline, ElementPatch, SlideOutline, SlidesClient } from "../src/client.js";
+import type { DeckOutline, ElementPatch, SlideOutline } from "../src/client.js";
 import { DownIcon, ImageIcon, PlayIcon, RefreshIcon, TrashIcon, UpIcon } from "./icons.js";
+import { useAwareness, type AwarenessLike, type DeckApi } from "./host.js";
 import { usePresence } from "./presence.js";
 import { entryOfPrincipal } from "./principal.js";
 import { messageOf } from "./session.js";
@@ -13,7 +14,16 @@ const POLL_MS = 3000;
 const clamp = (n: number, low: number, high: number) => Math.round(Math.min(Math.max(n, low), Math.max(low, high)));
 
 export interface EditorProps {
-  client: SlidesClient;
+  /** The calls to read and change the deck: a `SlidesClient`, or the calls of a host document. */
+  client: DeckApi;
+  /** Host mode: starts a watch on the document and gives the call that stops it. The editor reads at each change and does not poll. */
+  watch?: (listener: () => void) => () => void;
+  /** Host mode: the presence of the host's room. */
+  awareness?: AwarenessLike;
+  /** The kind of the principal, sent to the host's room. */
+  kind?: string;
+  /** False when the deck has no place to keep pictures. */
+  canImage?: boolean;
   id: string;
   canWrite: boolean;
   name: string;
@@ -25,7 +35,7 @@ export interface EditorProps {
   onPresent?: (slide: number) => void;
 }
 
-export function Editor({ client, id, token, origin, canWrite, name, onPresent }: EditorProps) {
+export function Editor({ client, watch, awareness, kind = "human", canImage = true, id, token, origin, canWrite, name, onPresent }: EditorProps) {
   const [outline, setOutline] = useState<DeckOutline | undefined>();
   const [error, setError] = useState<string | undefined>();
   // The slide is kept by id, so a slide that another writer adds or moves does not change which slide is open.
@@ -37,7 +47,10 @@ export function Editor({ client, id, token, origin, canWrite, name, onPresent }:
   const latest = useRef(0);
   const toast = useToast();
   const files = useRef<HTMLInputElement>(null);
-  const { peers, live } = usePresence(token, id, name, origin);
+  const room = usePresence(token, id, name, origin);
+  const hostPeers = useAwareness(awareness, { name, kind });
+  const peers = awareness ? hostPeers : room.peers;
+  const live = awareness ? "live" : room.live;
 
   const load = useCallback(async () => {
     const mine = ++latest.current;
@@ -52,9 +65,11 @@ export function Editor({ client, id, token, origin, canWrite, name, onPresent }:
   }, [client, id]);
   useEffect(() => {
     void load();
+    // A host document tells the editor when it changes. A client has no such call, so the editor polls.
+    if (watch) return watch(() => void load());
     const timer = setInterval(() => void load(), POLL_MS);
     return () => clearInterval(timer);
-  }, [load]);
+  }, [load, watch]);
 
   const at = Math.max(0, outline?.slides.findIndex((s) => s.id === slideId) ?? 0);
   const slide = outline?.slides[at];
@@ -77,6 +92,8 @@ export function Editor({ client, id, token, origin, canWrite, name, onPresent }:
   }
 
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  // A drag that is not saved yet must not write after the editor is gone. With a host document, that write would go to the host's own document.
+  useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear(); }, []);
   /** Move an element. The screen follows at once. The save waits until the keys or the drag stop. */
   function place(el: El, x: number, y: number, slideId: string) {
     if (!canWrite) return;
@@ -137,20 +154,20 @@ export function Editor({ client, id, token, origin, canWrite, name, onPresent }:
         <h1>{outline.title}</h1>
         <div className="head-meta">
           <PresenceStack entries={peers} label="Here now" />
-          <span className="muted" role="status">{live === "live" ? "Live" : live === "connecting" ? "Connecting…" : "Live presence is off"}</span>
+          <span className="muted" role="status">{live === "live" ? (watch ? "Presence on" : "Live") : live === "connecting" ? "Connecting…" : "Live presence is off"}</span>
         </div>
       </div>
       {error && <p role="alert" className="banner">The deck could not refresh: {error}</p>}
       <Toolbar label="Slide tools">
         <ToolbarButton label="Add slide" icon={<PlusIcon />} disabled={!canWrite} onClick={() => void add(layout)} />
-        <ToolbarButton label="Add image slide" icon={<ImageIcon />} disabled={!canWrite} onClick={() => files.current?.click()} />
+        <ToolbarButton label="Add image slide" icon={<ImageIcon />} disabled={!canWrite || !canImage} onClick={() => files.current?.click()} />
         <ToolbarSeparator />
         <ToolbarButton label="Move slide earlier" icon={<UpIcon />} disabled={!canWrite || !slide || slide.index === 1} onClick={() => void move(-1)} />
         <ToolbarButton label="Move slide later" icon={<DownIcon />} disabled={!canWrite || !slide || slide.index === outline.slides.length} onClick={() => void move(1)} />
         <ToolbarButton label="Delete slide" icon={<TrashIcon />} disabled={!canWrite || !slide} onClick={() => (setDoomed(slide!.id), setConfirmDelete(true))} />
         <ToolbarSeparator />
         <ToolbarButton label="Refresh" icon={<RefreshIcon />} onClick={() => void load()} />
-        <ToolbarButton label="Present" icon={<PlayIcon />} disabled={!slide} onClick={() => (onPresent ? onPresent(slide?.index ?? 1) : (location.hash = present))} />
+        <ToolbarButton label="Present" icon={<PlayIcon />} disabled={!slide || (!!watch && !onPresent)} onClick={() => (onPresent ? onPresent(slide?.index ?? 1) : (location.hash = present))} />
       </Toolbar>
       <input ref={files} type="file" accept="image/png,image/jpeg" hidden onChange={addImage} aria-label="Image file" tabIndex={-1} />
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete} title={`Delete slide ${outline.slides.find((s) => s.id === doomed)?.index ?? ""}?`} description={`"${outline.slides.find((s) => s.id === doomed)?.title || "Untitled"}" and its notes are removed from the deck.`} footer={<><DialogClose asChild><Button variant="secondary">Keep slide</Button></DialogClose><DialogClose asChild><Button variant="danger" onClick={() => void remove()}>Delete slide</Button></DialogClose></>} />

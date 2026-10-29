@@ -6,7 +6,7 @@ import { isLayout, LAYOUT_NAMES, type LayoutName } from "./core/layouts.js";
 import { checkImageSrc, isBlobRef } from "./core/model.js";
 import { checkAuthors, checkDeckState } from "./core/verify.js";
 import { SlidesError, checkAuthor, fail, type Principal } from "./core/principal.js";
-import { DEFAULT_LIMITS, checkDeckSize, tooManyPixels, type Limits } from "./export/limits.js";
+import { DEFAULT_LIMITS, checkDeckSize, sniff, tooManyPixels, type Limits } from "./export/limits.js";
 import { renderPdf } from "./export/pdf.js";
 import { StoreConflictError, type Blobs, type Store, type StoreOps } from "agentic-identity";
 import { renderDeck } from "./render/html.js";
@@ -20,12 +20,6 @@ const INDEX = "deck_index";
 export type SlideSel = string | number;
 
 export const slideRef = (sel: SlideSel) => (typeof sel === "number" || /^\d+$/.test(sel) ? Number(sel) - 1 : sel);
-
-function sniff(data: Uint8Array): string {
-  if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) return "image/png";
-  if (data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return "image/jpeg";
-  return fail("UNSUPPORTED_IMAGE", "images must be PNG or JPEG files");
-}
 
 /** The most bytes of deck state that a live room takes or a checkpoint saves. The room itself stops at 1.5 MiB. */
 export const MAX_LIVE_BYTES = 1_572_864;

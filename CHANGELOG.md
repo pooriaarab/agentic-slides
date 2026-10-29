@@ -2,13 +2,28 @@
 
 This file lists the notable changes to this project, by version.
 
-## 0.11.1 - 2026-10-29
+## 0.12.1 - 2026-10-29
 
 ### Fixed
 
 - `agentic-slides-mcp mcp --help`, `-h`, `--version` and `-V` print the usage or the version and exit 0. Before, the bin read only its first argument, so the `mcp` word started the MCP server and it waited on stdin.
 - After the `mcp` word, the bin reads `--help` and `--version` anywhere in the arguments, as the package CLI does. When both are given, `--help` wins. The usage line shows the optional `mcp` word. Without the `mcp` word, the bin reads only its first argument, as before.
-- The lock file says 0.11.1, as `package.json` does. On 0.11.0 it said 0.10.0.
+- The lock file matches `package.json`. Before, on 0.11.0, the lock file said 0.10.0.
+
+## 0.12.0 - 2026-10-29
+
+### Changed
+
+- Without `host`, `mount` throws a `TypeError` if the `client` or the `docId` is missing. Before, the editor failed later.
+
+### Added
+
+- Host document mode for `agentic-slides/ui`. Give `mount` (or `SlidesEditor`) a `host` with your own Yjs document, and the editor reads and writes that document. It makes no HTTP call, and it does not poll: it reads again at each change of the document. Without `host`, the editor works as before, with a `client` and a `docId`.
+- `host.awareness` (the shape of a `y-protocols` awareness) shows the peers of your room and announces this person or agent. `host.putImage` stores a picture and gives back its `blob:sha256-<hex>` reference. Without it, the editor adds no image slide.
+- With `host`, a `client` or a `presence` option, a document from another copy of Yjs, or a bad `awareness` or `putImage` throws a `TypeError` before anything renders.
+- Each host edit carries the kind of the principal, so an agent edit shows the agent mark.
+- The editor shows a deck only if it passes the checks of the service, and it writes nothing to a document that does not. It does not check the author labels that peers write.
+- With `host`, Present is off until you give `onPresent`. `docId` is optional with `host`.
 
 ## 0.11.0 - 2026-10-29
 

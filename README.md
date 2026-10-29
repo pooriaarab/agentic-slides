@@ -293,6 +293,40 @@ Without `presence`, the editor shows no live presence. Without `onPresent`, Pres
 `#/deck/<id>/present/<slide>`. `react` and `react-dom` (version 19) are peer dependencies. The web UI that the
 Worker serves renders the same editor component.
 
+### Use your own Yjs document
+
+An app that keeps decks in its own Yjs rooms gives the editor that document. Pass `host` in place of `client`.
+The editor reads and writes the document, makes no HTTP call, and does not poll. It reads again at each change
+of the document, from any writer.
+
+```ts
+import * as Y from "yjs";
+import { mount } from "agentic-slides/ui";
+
+const doc = new Y.Doc(); // your document, from your own provider
+// `awareness` is from your provider. `storeIt` is your own function.
+const editor = mount(document.getElementById("slides")!, {
+  host: {
+    doc,
+    awareness,                              // optional: shows who is here
+    putImage: async (bytes) => storeIt(bytes), // optional: returns "blob:sha256-<hash of the bytes>"
+  },
+  principal: { kind: "human", name: "Ada", role: "editor" },
+});
+```
+
+- The document must come from the same copy of `yjs` as `agentic-slides`. A document from another copy throws a `TypeError`. Run `npm ls yjs` and remove the duplicate copies, so your app and this package share one copy.
+- `awareness` needs `clientID`, `getStates`, `setLocalStateField`, `on`, and `off`, as a `y-protocols` awareness has. Each peer sets the field `user` to `{ name, kind? }`. The editor sets its own `user` and clears it on unmount. It never closes your room or your document.
+- The editor shows only a deck that passes the checks that the service runs before it saves one. If a peer writes a bad theme or element, the editor keeps the last good deck on screen and shows "The deck could not refresh". It writes nothing while the document is invalid. It does not check the author labels that peers write. Your room must do that. A peer sets its own name and kind in the awareness. A peer with no kind, or kind `human`, shows as a person. Any other kind shows as an agent.
+- Keep `putImage` the same function between `update` calls. A new function makes the editor read the document again.
+- Each edit carries the kind of the principal, so an agent edit has the agent mark. Your app checks who may write: give `role: "viewer"` to open the deck read only.
+- Without `putImage`, the editor adds no image slide. Pictures stay `blob:` references. The editor does not keep the bytes. It checks each picture first (PNG or JPEG, the size and pixel limits of the service) and calls `putImage` only for a good one. `putImage` must return `blob:sha256-` and the SHA-256 of the bytes in hex. If the edit fails after `putImage` stored a picture, the picture stays in your store with no slide.
+- Host edits have no size cap in the editor. The size limit is the limit of your own room or store.
+- Give no `client` and no `presence` with `host`. `docId` is optional with `host`.
+- Present needs `onPresent` in host mode, because only the Worker UI has a present page. Without it, Present is off.
+- The status says "Presence on" when you give `awareness`. It does not know if your provider is online.
+- The document is a deck as `agentic-slides` stores it. Make one with `Deck.create` from `agentic-slides`, or open an existing one.
+
 ## SDK
 
 `agentic-slides/client` is a typed client for the HTTP API. It uses only `fetch`. It runs in
@@ -435,9 +469,24 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 - A checkpoint holds at most 1.5 MiB. A deck over that cannot go in a room.
 - Elements cannot be added or deleted one by one yet. The canvas edits the elements that a layout makes.
 - The UI shows an image as a box with its description. The API has no route to read one image yet.
-- The UI uses the room for presence only. Its edits go through the HTTP API, and it reads the deck again every 3 seconds.
+- In host mode, the document must hold a deck. An empty `Y.Doc` shows "this document holds no deck", and the editor writes nothing to it. Make the deck with `Deck.create`.
+- In client mode, the UI uses the room for presence only. Its edits go through the HTTP API, and it reads the deck again every 3 seconds.
 - A deck that someone edits while a person pages through the list moves to the front, so it can be missing from the later pages of that walk. Load the list again to see it.
 - The deck list reads a small index that each save writes. A deck that nobody edited since this version is not in the list until its next edit.
+
+## Run locally
+
+```sh
+bun install        # or: npm ci
+bun run dev        # or: npm run dev
+curl http://localhost:8787/health
+```
+
+The script builds the app, then runs `wrangler dev` with the region set to `unknown` (`SLIDES_REGION=unknown`), because local D1 reports no region. Do not use this value in production. `/health` needs no token. To sign in to the UI on your machine only, pass a static token: `TOKEN=$(openssl rand -hex 24); echo "$TOKEN"; npm run dev -- --var SLIDES_UNSAFE_STATIC_TOKENS:1 --var "SLIDES_TOKENS:$TOKEN=human:ada"`.
+
+The scripts call `npm` and `node` (Node 22 or newer), so install both, even if you use bun. They need a POSIX shell.
+
+Run `npm run dev:smoke` to check this path. It starts the dev server on port 8799, waits for `GET /health` to answer 200, and stops the server. CI runs it as the "dev smoke" step. Set `DEV_SMOKE_PORT` to use another port.
 
 ## Develop
 
