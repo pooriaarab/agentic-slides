@@ -439,6 +439,18 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 - A deck that someone edits while a person pages through the list moves to the front, so it can be missing from the later pages of that walk. Load the list again to see it.
 - The deck list reads a small index that each save writes. A deck that nobody edited since this version is not in the list until its next edit.
 
+## Run locally
+
+```sh
+bun install        # or: npm ci
+bun run dev        # or: npm run dev
+curl http://127.0.0.1:8787/health
+```
+
+The script builds the app, then runs `wrangler dev` with the region check off (`SLIDES_REGION=unknown`). `/health` needs no token. To sign in to the UI, add the static-token flags from the "UI" section.
+
+Run `npm run dev:smoke` to check this path. It starts the dev server on port 8799, waits for `GET /health` to answer 200, and stops the server. CI runs it as the "dev smoke" step. Set `DEV_SMOKE_PORT` to use another port.
+
 ## Develop
 
 ```sh

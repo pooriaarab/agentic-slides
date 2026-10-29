@@ -25,5 +25,9 @@ jobs:
       - run: npm run typecheck
       - run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - run: npm test
+      - name: dev smoke
+        run: npm run dev:smoke
+        env:
+          WRANGLER_SEND_METRICS: "false"
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
