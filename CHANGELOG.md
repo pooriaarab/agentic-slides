@@ -9,6 +9,8 @@ This file lists the notable changes to this project, by version.
 - This release has no code change. The 0.4.0 grant keys of `agentic-identity` are a breaking change for a
   host that shares decks. See the breaking changes of 0.2.0 for the steps: run `migrateGrants(store)`
   and call `deleteResource` when you delete a deck.
+- The breaking changes of 0.2.0 now include these steps. They were not in the notes when 0.2.0 was
+  released. Read them again, also the steps for an `unresolved` grant and for an erase error.
 - New tests pin the kind and id grant keys, the erase of grants, and `migrateGrants`.
 
 ## 0.2.0 - 2026-10-29
