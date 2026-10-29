@@ -2,7 +2,7 @@
 import { VERSION } from "./version.js";
 
 const HELP = `agentic-slides-mcp ${VERSION}
-Usage: agentic-slides-mcp [--help | --version]
+Usage: agentic-slides-mcp [mcp] [--help | --version]
 
 Runs the MCP server on stdio. An MCP client starts it.
 `;
@@ -29,10 +29,13 @@ async function serve(): Promise<void> {
   });
 }
 
-const flag = process.argv[2];
-if (flag === "--version" || flag === "-V") {
+// The `mcp` word may come first, as the package CLI takes it: `agentic-slides-mcp mcp --help`.
+const argv = process.argv.slice(2);
+const args = argv[0] === "mcp" ? argv.slice(1) : argv;
+const has = (...names: string[]) => args.some((a) => names.includes(a));
+if (has("--version", "-V")) {
   process.stdout.write(`${VERSION}\n`);
-} else if (flag === "--help" || flag === "-h") {
+} else if (has("--help", "-h")) {
   process.stdout.write(HELP);
 } else {
   serve().catch((error: unknown) => {

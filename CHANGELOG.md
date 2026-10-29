@@ -2,6 +2,17 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.11.1 - 2026-10-29
+
+### Fixed
+
+- `agentic-slides-mcp mcp --help`, `-h`, `--version` and `-V` print the usage or the version and exit 0. Before, the bin read only its first argument, so the `mcp` word started the MCP server and it waited on stdin.
+- The bin reads `--help` and `--version` anywhere after an optional leading `mcp` word, as the package CLI does. Other arguments are still ignored, as before.
+
+### Added
+
+- Tests run the built mcp bin with the `mcp` forms of these flags and assert exit 0 within 5 s.
+
 ## 0.11.0 - 2026-10-29
 
 ### Changed
