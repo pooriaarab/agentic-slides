@@ -8,7 +8,6 @@ This file lists the notable changes to this project, by version.
 
 - `agentic-slides-mcp mcp --help`, `-h`, `--version` and `-V` print the usage or the version and exit 0. Before, the bin read only its first argument, so the `mcp` word started the MCP server and it waited on stdin.
 - After the `mcp` word, the bin reads `--help` and `--version` anywhere in the arguments, as the package CLI does. When both are given, `--help` wins. The usage line shows the optional `mcp` word. Without the `mcp` word, the bin reads only its first argument, as before.
-- The lock file matches `package.json`. Before, on 0.11.0, the lock file said 0.10.0.
 
 ## 0.12.0 - 2026-10-29
 
