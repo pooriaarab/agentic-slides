@@ -2,6 +2,21 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.4.0 - 2026-10-29
+
+### Added
+
+- `agentic-slides/client` is a new subpath. `createClient({ baseUrl, token, fetch? })` returns a typed
+  client for the HTTP API, with one method for each route. It uses only `fetch`, so it runs in browsers,
+  Workers, and Node 22. A refused call throws `SlidesApiError` with the HTTP `status` and the API `code`.
+  Each call takes an `AbortSignal`. The client never retries a call. The live room route stays with
+  `LiveDeck` from `agentic-slides/live`.
+- The README has an "SDK" section for the client. `llms.txt` lists it.
+
+### Changed
+
+- No other change since 0.3.0.
+
 ## 0.3.0 - 2026-10-29
 
 ### Changed
