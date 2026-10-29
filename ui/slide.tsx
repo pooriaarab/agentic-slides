@@ -108,7 +108,7 @@ export function SlideView({ slide, theme, selected, onSelect, onNudge, label }: 
     addEventListener("pointercancel", stop);
   };
   return (
-    <div className="slide" {...(label === "" ? { "aria-hidden": true } : { role: interactive ? "group" : "img", "aria-label": label ?? `Slide ${slide.index}: ${slide.title}` })} style={{ background: theme.colors.background }}>
+    <div className="slide" data-theme="light" {...(label === "" ? { "aria-hidden": true } : { role: interactive ? "group" : "img", "aria-label": label ?? `Slide ${slide.index}: ${slide.title}` })} style={{ background: theme.colors.background }}>
       {slide.elements.map((el, i) =>
         interactive ? (
           <div
