@@ -136,6 +136,13 @@ close it. An agent that uses the other token appears in presence, and its edits 
 To serve the UI from the npm package in your own Worker, copy `wrangler.jsonc` from this repo. Change `main` to
 `./node_modules/agentic-slides/dist/live-worker.js`, and change `assets.directory` to `./node_modules/agentic-slides/dist/ui`.
 Keep the `DB`, `IMAGES`, and `SYNC_ROOM` bindings. The package ships `dist/ui`, so you do not need the source.
+The package exports the API Worker as `agentic-slides/worker`. The default export is a Worker with a `fetch` handler.
+`createWorker()` makes another one. It needs a D1 binding `DB` and an R2 binding `IMAGES`. Every route needs a bearer token from `SLIDES_TOKENS`.
+
+```ts
+export { default } from "agentic-slides/worker";
+```
+
 The setup comments in `wrangler.jsonc` say how to create the D1 database and the R2 bucket, and how to set `SLIDES_TOKENS` as a secret.
 
 Test the UI in a browser. The tests start their own Workers, so run `npm run build` first. They need
