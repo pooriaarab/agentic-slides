@@ -10,7 +10,10 @@ This file lists the notable changes to this project, by version.
   binding and its `v1` migration. Deploy with the new `wrangler.jsonc`. A Worker that lacks the
   binding cannot serve live rooms, and `POST /decks/:deck/checkpoint` fails with a server error.
 - The token setting `SLIDES_TOKENS` reads the text after the last `;` as the role. A principal can
-  no longer hold a `;`. An entry such as `human:a;b` is refused with a configuration error.
+  no longer hold a `;`. The Worker refuses an entry such as `human:a;b` with a configuration error.
+  An entry such as `human:ada;viewer` is no longer an editor named `ada;viewer`. It is a viewer
+  named `ada`. An entry such as `human:ada;editor` is now named `ada`. Check the entries before you
+  deploy.
 - `SlidesErrorCode` has three new codes: `FORBIDDEN`, `INVALID_UPDATE`, and `LIVE_UNAVAILABLE`. A
   `switch` that must cover every code needs a case for each new code.
 - The export names of `agentic-slides` did not change. The `agentic-slides/live` export is new.
@@ -26,7 +29,7 @@ This file lists the notable changes to this project, by version.
 
 ### Changed
 
-- The package depends on `agentic-realtime` ^0.1.0 for live rooms. `agentic-identity` moves from ^0.2.0 to ^0.3.0.
+- The package depends on `agentic-realtime` ^0.1.0 for live rooms. `agentic-identity` moves from ^0.2.0 to ^0.4.0.
 
 ## 0.1.0 - 2026-10-29
 
