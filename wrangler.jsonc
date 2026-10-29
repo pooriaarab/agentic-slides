@@ -12,6 +12,7 @@
   "compatibility_date": "2026-01-01",
   // The root of agentic-identity imports node:module for its version string.
   "compatibility_flags": ["nodejs_compat"],
+  "send_metrics": false,
   "d1_databases": [{ "binding": "DB", "database_name": "agentic-slides", "database_id": "00000000-0000-0000-0000-000000000000" }],
   "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "agentic-slides-images", "jurisdiction": "eu" }],
   "rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }]

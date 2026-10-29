@@ -1,0 +1,30 @@
+# Changelog
+
+This file lists the notable changes to this project, by version.
+
+## 0.1.0 - 2026-10-29
+
+First release.
+
+### Added
+
+- Deck library. A deck is a Yjs document with ordered slides. Each slide has a layout,
+  elements, and speaker notes. All positions use one 1280 by 720 space.
+- Outline format and compiler. Add slides from an outline, or set one slide from an outline.
+- Text-fit estimate. The deck refuses text that does not fit its box (`TEXT_OVERFLOW`).
+- HTML render of a deck and a present page. The render escapes all text and loads no remote asset.
+- PDF export without a browser. PDF export embeds the bundled fonts.
+- CLI (`agentic-slides`): new, add, outline, edit, move, delete, render, and export.
+- MCP server (`agentic-slides-mcp`, or `agentic-slides mcp`) with the deck tools.
+- HTTP API as a Cloudflare Worker (Hono) under `/api/v1/slides`. Decks live in D1, and
+  images live in R2.
+- Bearer tokens. Each token names the author of its edits. The default is closed.
+- Shared `Store` and `Blobs` ports from `agentic-identity` 0.2, with file adapters for
+  the CLI and the MCP server.
+- Every edit keeps the author kind: `human`, `agent_of_human`, `agent_of_agent`, `agent`,
+  or `user_token`.
+
+### Not yet ready
+
+- ODP export.
+- PPTX export.
