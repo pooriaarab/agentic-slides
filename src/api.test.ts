@@ -224,3 +224,34 @@ describe("image volume", () => {
     expect(Object.keys(decodeImages({ a: png }) ?? {})).toEqual(["a"]);
   });
 });
+
+describe("deck list", () => {
+  test("lists decks with the last editor, needs a token, and answers a viewer", async () => {
+    const call = appFor(`${TOKENS},viewer-token-0123456789-abcdefghij=human:eve;viewer`);
+    expect((await call("GET", "/decks")).status).toBe(401);
+    expect(await (await call("GET", "/decks", { token: HUMAN })).json()).toEqual({ decks: [] });
+    await call("POST", "/decks", { token: AGENT, body: { title: "Plan", id: "plan" } });
+    const listed = await call("GET", "/decks", { token: "viewer-token-0123456789-abcdefghij" });
+    expect(listed.status).toBe(200);
+    const { decks } = (await listed.json()) as { decks: { id: string; title: string; editedBy: object; machineMade: boolean; savedAt: number }[] };
+    expect(decks).toHaveLength(1);
+    expect(decks[0]).toMatchObject({ id: "plan", title: "Plan", editedBy: { kind: "agent_of_human", name: "bot" }, machineMade: true });
+    expect(Number.isFinite(decks[0]!.savedAt)).toBe(true);
+  });
+});
+
+describe("room token as a subprotocol", () => {
+  const call = appFor();
+  const offer = (token: string) => ({ "sec-websocket-protocol": `bearer.${token}` });
+
+  test("the room route reads the token, and a wrong token is refused", async () => {
+    expect((await call("GET", "/decks/x/ws", { headers: offer(HUMAN) })).status).toBe(404) // past auth: this app has no live rooms;
+    expect((await call("GET", "/decks/x/ws", { headers: offer(`${HUMAN}x`) })).status).toBe(401);
+    expect((await call("GET", "/decks/x/ws", { headers: { "sec-websocket-protocol": "chat, other" } })).status).toBe(401);
+  });
+
+  test("no other route reads it, and a header beats it", async () => {
+    expect((await call("GET", "/me", { headers: offer(HUMAN) })).status).toBe(401);
+    expect((await call("GET", "/decks/x/ws", { token: `${HUMAN}x`, headers: offer(HUMAN) })).status).toBe(401);
+  });
+});

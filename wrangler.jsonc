@@ -16,6 +16,8 @@
   "durable_objects": { "bindings": [{ "name": "SYNC_ROOM", "class_name": "SyncRoom" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SyncRoom"] }],
   "send_metrics": false,
+  // The web UI. `npm run build` writes it to dist/ui. The API and health routes go to the Worker first.
+  "assets": { "directory": "./dist/ui", "run_worker_first": ["/api/*", "/health"] },
   "d1_databases": [{ "binding": "DB", "database_name": "agentic-slides", "database_id": "00000000-0000-0000-0000-000000000000" }],
   "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "agentic-slides-images", "jurisdiction": "eu" }],
   "rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }]

@@ -1,4 +1,5 @@
-import type { DeckOutline, ElementPatch } from "./core/deck.js";
+import type { DeckOutline, ElementPatch, SlideOutline } from "./core/deck.js";
+import type { DeckSummary } from "./service.js";
 import type { Principal, PrincipalKind, SlidesErrorCode } from "./core/principal.js";
 
 /** The remote client for the Worker HTTP API. It uses only `fetch`, so it runs in browsers, Workers, and Node. */
@@ -112,6 +113,8 @@ export function createClient({ baseUrl, token, fetch: send = (...args) => global
     health: (options: CallOptions = {}) => json<Health>(call("GET", "", { ...options, root: `${baseUrl.replace(/\/+$/, "")}/health` })),
     /** Who the token stands for. */
     me: (options: CallOptions = {}) => json<Me>(call("GET", "/me", options)),
+    /** The decks, with the last editor of each. */
+    listDecks: async (options: CallOptions = {}) => (await json<{ decks: DeckSummary[] }>(call("GET", "/decks", options))).decks,
     createDeck: (input: { title: string; id?: string }, options: CallOptions = {}) => json<{ id: string }>(call("POST", "/decks", { ...options, body: input })),
     outline: (deck: string, options: CallOptions = {}) => json<DeckOutline>(call("GET", `/decks/${seg(deck)}`, options)),
     addSlides: (deck: string, input: AddSlidesInput, options: CallOptions = {}) =>
@@ -139,4 +142,4 @@ export function createClient({ baseUrl, token, fetch: send = (...args) => global
 }
 
 export type SlidesClient = ReturnType<typeof createClient>;
-export type { DeckOutline, ElementPatch, Principal, PrincipalKind, SlidesErrorCode };
+export type { DeckSummary, DeckOutline, SlideOutline, ElementPatch, Principal, PrincipalKind, SlidesErrorCode };

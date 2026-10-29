@@ -2,6 +2,15 @@
 
 This file lists the notable changes to this project, by version.
 
+## Unreleased
+
+### Added
+
+- A web UI at `/` on the Worker, built on `agentic-design`: deck list, slide sorter, slide canvas, present
+  mode, live presence, and an agent mark on slides that an agent edited. `npm run build` writes it to `dist/ui`.
+- `GET /api/v1/slides/decks` and `client.listDecks()` list the decks with the last editor of each.
+- The room route accepts the token as the WebSocket subprotocol `bearer.<token>`, for browsers.
+
 ## 0.4.0 - 2026-10-29
 
 ### Added

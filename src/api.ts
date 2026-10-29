@@ -48,12 +48,28 @@ const body = {
   move: z.object({ to: z.number().int() }),
 };
 
+const ROOM_ROUTE = /\/decks\/[^/]+\/ws$/;
+const SUBPROTOCOL = /^bearer\.([A-Za-z0-9._~+-]+)$/;
+
+/**
+ * A browser cannot set a header on a WebSocket, so it offers the token as the subprotocol `bearer.<token>`.
+ * Only the room route reads it, and only when there is no Authorization header.
+ */
+function roomToken(request: Request, path: string): { request: Request; offered?: string } {
+  if (!ROOM_ROUTE.test(path) || request.headers.has("authorization")) return { request };
+  const offered = (request.headers.get("sec-websocket-protocol") ?? "").split(",").map((p) => p.trim()).find((p) => SUBPROTOCOL.test(p));
+  if (!offered) return { request };
+  const headers = new Headers(request.headers);
+  headers.set("authorization", `Bearer ${SUBPROTOCOL.exec(offered)![1]}`);
+  return { request: new Request(request.url, { method: request.method, headers }), offered };
+}
+
 const failure = (code: string, message: string, extra: object = {}) => ({ error: { code, message, ...extra } });
 
 /** The HTTP API under /api/v1/slides. It mirrors the CLI. The caller's token names the author of each edit. */
 export function createApp({ service, auth, live, principals = [] }: AppDeps) {
   const configured = new Set(principals.map((who) => `${who.kind}:${who.name}`));
-  const app = new Hono<{ Variables: { author: Principal; role: SlidesRole } }>();
+  const app = new Hono<{ Variables: { author: Principal; role: SlidesRole; offered?: string } }>();
   app.use("*", async (c, next) => {
     await next();
     c.header("x-content-type-options", "nosniff");
@@ -61,15 +77,17 @@ export function createApp({ service, auth, live, principals = [] }: AppDeps) {
   });
   app.get("/health", (c) => c.json({ ok: true, pack: COMMAND, version: VERSION }));
 
-  const api = new Hono<{ Variables: { author: Principal; role: SlidesRole } }>();
+  const api = new Hono<{ Variables: { author: Principal; role: SlidesRole; offered?: string } }>();
   const general = bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => c.json(failure("TOO_LARGE", "The request body is too large."), 413) });
   // A checkpoint has its own, lower cap.
   api.use("*", (c, next) => (c.req.method === "POST" && /\/decks\/[^/]+\/checkpoint$/.test(c.req.path) ? next() : general(c, next)));
   api.use("*", async (c, next) => {
-    const caller = await auth(c.req.raw);
+    const { request, offered } = roomToken(c.req.raw, c.req.path);
+    const caller = await auth(request);
     if (!caller) return c.json(failure("UNAUTHORIZED", "Send a valid bearer token."), 401, { "www-authenticate": "Bearer" });
     c.set("author", caller.author);
     c.set("role", caller.role);
+    c.set("offered", offered);
     // Only a read is safe for a viewer. This holds for every route added later, too.
     if (caller.role === "viewer" && c.req.method !== "GET" && c.req.method !== "HEAD") {
       return c.json(failure("FORBIDDEN", "This token is a viewer. It cannot change a deck."), 403);
@@ -87,7 +105,13 @@ export function createApp({ service, auth, live, principals = [] }: AppDeps) {
     const id = c.req.param("deck");
     await service.exists(id); // a deck that does not exist has no room
     const { kind, name } = c.get("author");
-    return live(c.env).connect(id, c.req.raw, { principal: { id: `${kind}:${name}`, kind }, role: c.get("role"), name });
+    const room = await live(c.env).connect(id, c.req.raw, { principal: { id: `${kind}:${name}`, kind }, role: c.get("role"), name });
+    const offered = c.get("offered");
+    // The browser closes the socket unless the answer names the subprotocol that it offered.
+    if (!offered || room.status !== 101) return room;
+    const headers = new Headers(room.headers);
+    headers.set("sec-websocket-protocol", offered);
+    return new Response(null, { status: 101, headers, webSocket: (room as Response & { webSocket?: unknown }).webSocket } as ResponseInit);
   });
   // A live room reads its start state here and saves its state back.
   api.get("/decks/:deck/state", async (c) => c.body((await service.state(c.req.param("deck"))) as Uint8Array<ArrayBuffer>, 200, { "content-type": "application/octet-stream" }));
@@ -111,6 +135,7 @@ export function createApp({ service, auth, live, principals = [] }: AppDeps) {
     const input = body.create.parse(await c.req.json());
     return c.json(await service.create({ ...input, author: c.get("author") }), 201);
   });
+  api.get("/decks", async (c) => c.json({ decks: await service.list() }));
   api.get("/decks/:deck", async (c) => c.json(await service.outline(c.req.param("deck"))));
   api.post("/decks/:deck/slides", async (c) => {
     const input = body.add.parse(await c.req.json());

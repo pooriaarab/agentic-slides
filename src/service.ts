@@ -28,6 +28,18 @@ function sniff(data: Uint8Array): string {
 /** The most bytes of deck state that a live room takes or a checkpoint saves. The room itself stops at 1.5 MiB. */
 export const MAX_LIVE_BYTES = 1_572_864;
 
+/** The most decks that `list` returns. */
+export const MAX_LISTED = 200;
+
+export interface DeckSummary {
+  id: string;
+  title: string;
+  editedBy?: Principal;
+  machineMade: boolean;
+  /** Milliseconds since the epoch. */
+  savedAt?: number;
+}
+
 export interface Ports {
   store: Store;
   blobs: Blobs;
@@ -46,8 +58,10 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
     return saved ? Deck.fromUpdate(fromBase64(saved.update)) : fail("NO_DECK", `no deck "${id}"`);
   }
 
-  const save = (ops: StoreOps, id: string, deck: Deck) =>
-    ops.put(COLLECTION, id, { update: toBase64(deck.encode()), title: deck.outline().title });
+  const save = (ops: StoreOps, id: string, deck: Deck) => {
+    const { title, editedBy, machineMade } = deck.outline();
+    return ops.put(COLLECTION, id, { update: toBase64(deck.encode()), title, editedBy: { ...editedBy }, machineMade, savedAt: Date.now() });
+  };
 
   /** A transaction that kept conflicting gave up and wrote nothing. Report it with a code. */
   async function transact<R>(fn: (tx: StoreOps) => Promise<R>): Promise<R> {
@@ -125,6 +139,21 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
         await save(tx, id, Deck.create({ title: input.title, author: input.author }));
       });
       return { id };
+    },
+
+    /** The decks, with the last editor of each. A deck saved before this field existed has no editor and no time. */
+    async list(): Promise<DeckSummary[]> {
+      const { items } = await store.query(COLLECTION, { limit: MAX_LISTED });
+      return items.map(({ id, data }) => {
+        const who = data.editedBy as Partial<Principal> | null | undefined;
+        return {
+          id,
+          title: typeof data.title === "string" ? data.title : id,
+          editedBy: typeof who?.kind === "string" && typeof who.name === "string" ? (who as Principal) : undefined,
+          machineMade: data.machineMade === true,
+          savedAt: typeof data.savedAt === "number" && Number.isFinite(data.savedAt) ? data.savedAt : undefined,
+        };
+      });
     },
 
     async outline(id: string): Promise<DeckOutline> {
@@ -233,4 +262,4 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
 export type Service = ReturnType<typeof createService>;
 
 /** What the CLI and the MCP server call. The live client has the same shape, so either can stand behind them. */
-export type Operations = Omit<Service, "state" | "checkpoint" | "exists">;
+export type Operations = Omit<Service, "state" | "checkpoint" | "exists" | "list">;
