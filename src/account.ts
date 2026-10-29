@@ -130,6 +130,9 @@ export const slidesAccount: SlidesAccount = {
     const authors = authorsOf(who);
     for await (const { id } of pages(store, COLLECTION)) {
       // One deck at a time in a transaction, so a write from another caller makes it run again.
+      // A room that is open can save the old names back, so it goes before the write when this deck has a match.
+      const seen = live && (await store.get<{ update: string }>(COLLECTION, id));
+      if (seen && Deck.fromUpdate(fromBase64(seen.update)).authorship(authors).length > 0) await live!.erase(id);
       const changed = await store.transaction(async (tx) => {
         const saved = await tx.get<{ update: string; title?: string }>(COLLECTION, id);
         if (!saved) return 0;

@@ -407,7 +407,7 @@ export class Deck {
 
   /**
    * Replace each author in `who` with the same kind and the name `name`, so the machine-made label stays. It does not stamp
-   * the deck as edited. It returns how many records changed.
+   * the deck as edited. It returns how many records changed: a record that holds `name` already is not a change.
    */
   anonymise(who: Principal[], name: string): number {
     let changed = 0;
@@ -416,7 +416,7 @@ export class Deck {
         let hit = false;
         for (const key of ["createdBy", "editedBy"]) {
           const value = map.get(key) as Principal | undefined;
-          if (value && who.some((p) => p.kind === value.kind && p.name === value.name)) {
+          if (value && value.name !== name && who.some((p) => p.kind === value.kind && p.name === value.name)) {
             map.set(key, { kind: value.kind, name });
             hit = true;
           }

@@ -153,7 +153,20 @@ describe("slidesAccount", () => {
 
     await slidesAccount.eraseAccount(ana, { store, live: { erase: async (id) => void rooms.push(id) } });
 
-    expect([...new Set(rooms)].sort()).toEqual(["mine", "theirs"]);
+    // A deleted deck: clear, delete, clear. A changed deck: clear before the write and after it.
+    expect(rooms.filter((id) => id === "mine")).toHaveLength(2);
+    expect(rooms.filter((id) => id === "theirs")).toHaveLength(2);
+    expect(rooms).not.toContain("untouched");
+  });
+
+  it("counts zero on a repeat for a subject named like the erased name", async () => {
+    const { store, decks, make } = await setup();
+    await make("d", { kind: "human", id: "bo" });
+    await decks.addSlides("d", { outline: "# A", author: { kind: "human", name: "ana" } });
+    const erased: Subject = { kind: "human", id: "erased" };
+    await slidesAccount.eraseAccount(ana, { store });
+
+    expect(await slidesAccount.eraseAccount(erased, { store })).toEqual({ decks: 0, grants: 0, authored: 0 });
   });
 
   it("keeps the kind of an erased agent author", async () => {
