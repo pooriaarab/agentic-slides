@@ -2,6 +2,19 @@
 
 This file lists the notable changes to this project, by version.
 
+## Unreleased
+
+### Added
+
+- Sharing. A deck made through the Worker has an owner. The owner gives the roles owner, editor, commenter, and viewer to people and agents, invites by email or handle, and makes share links. HTTP routes: `GET /decks/:deck/access`, `POST` and `DELETE /decks/:deck/grants`, `POST /decks/:deck/invites`, `POST /invites/accept`, `POST /decks/:deck/links`, `DELETE /decks/:deck/links/:link`, `GET /shared/:deck`, and `GET /shared/:deck/render`.
+- SDK calls `access`, `grant`, `revoke`, `invite`, `acceptInvite`, `createShareLink`, `revokeShareLink`, and `readShared`. CLI commands `access`, `grant`, `revoke`, `invite`, `accept-invite`, `share-link`, and `revoke-link`, which need `--live`. MCP tools `list_access`, `grant_access`, `revoke_access`, `invite`, `accept_invite`, `create_share_link`, and `revoke_share_link`, in a live setting.
+- `GET /me` also returns the `subject` that the token holds roles as.
+
+### Changed
+
+- The deck routes check the role of the caller. A caller with no role gets 404, and a role that is too low gets 403. `GET /decks` lists only the decks that the caller holds a role on. A deck made before sharing has no owner: it keeps the token check, and it cannot be shared.
+- The Worker refuses a token name that has a character outside `A-Z a-z 0-9 _ -`, because such a name could hold no role.
+
 ## 0.8.0 - 2026-10-29
 
 This release has no breaking change. Its HTTP routes, SDK calls, and CLI and MCP commands that existed before still work the same way.
