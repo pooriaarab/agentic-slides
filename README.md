@@ -312,7 +312,7 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 
 ## Limits
 
-- ODP and PPTX: a table is written as text. Text color, font size, and shapes do not survive an import. A star in imported text becomes the asterisk operator, because an outline has no escape.
+- ODP and PPTX: a table is written as text. Text color, font size, and shapes do not survive an import. A star in imported text becomes the asterisk operator, because an outline has no escape. Bold italic text keeps only bold. A list is written with a "•" in the text, because the neutral deck has no list paragraph. A slide with more text than its box holds fails the add with `TEXT_OVERFLOW`: shorten the outline text and add it again.
 - Text fit is an estimate from font size and box size. It is the same on every run.
 - An image must be a stored blob (`blob:sha256-<64 hex digits>`). A network address is refused.
   An image that is gone from the store, or cannot be decoded, draws as a placeholder

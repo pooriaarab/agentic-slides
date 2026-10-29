@@ -53,6 +53,7 @@ function shapeOf(el: Element, outline: DeckOutline, images: ImageBytes, warn: (m
     warn("a table is written as text, one line for each row");
     return { type: "textbox", frame, paragraphs: el.rows.map((row) => [{ type: "text", text: row.join("  |  ") }]) };
   }
+  if (el.runs.every((run) => run.text.trim() === "")) return;
   const runs: TextRun[][] = [[]];
   for (const run of el.runs) {
     run.text.split("\n").forEach((part, i) => {
@@ -78,10 +79,8 @@ export function deckToPptx(outline: DeckOutline, images?: ImageBytes): ExportedF
   return { bytes: written.bytes, warnings: [...warnings, ...written.warnings] };
 }
 
-/** Marks in outline text are `**` and `*`, and the outline has no escape. A literal star becomes the asterisk operator (U+2217). */
-const oneLine = (text: string) => text.replace(/\s+/g, " ").trim().replaceAll("*", "∗");
-
-function paragraphText(paragraph: TextRun[]): string {
+/** The text of one paragraph, with `**` and `*` marks. An outline has no escape, so a literal star becomes the asterisk operator (U+2217). A run that is bold and italic keeps only bold: an outline has no mark for both. */
+function paragraphText(paragraph: TextRun[], warn: (message: string) => void): string {
   const text = paragraph
     .map((run) => {
       const piece = run.text.replace(/\s+/g, " ").replaceAll("*", "∗");
@@ -89,14 +88,21 @@ function paragraphText(paragraph: TextRun[]): string {
       if (core === "") return piece;
       const bold = run.marks?.includes("bold");
       const italic = run.marks?.includes("italic");
-      return `${lead}${bold && italic ? `***${core}***` : bold ? `**${core}**` : italic ? `*${core}*` : core}${trail}`;
+      if (bold && italic) warn("bold italic text keeps only bold");
+      return `${lead}${bold ? `**${core}**` : italic ? `*${core}*` : core}${trail}`;
     })
     .join("")
     .trim();
   return text.startsWith(BULLET) ? text.slice(BULLET.length).trim() : text;
 }
 
-const textOf = (box: TextBox) => box.paragraphs.map(paragraphText).filter((line) => line !== "");
+/** The text of a paragraph with no marks. A title holds no marks. */
+const plainText = (paragraph: TextRun[]) => paragraph.map((run) => run.text).join("").replace(/\s+/g, " ").trim().replaceAll("*", "∗").replace(/^•\s*/, "");
+
+const textOf = (box: TextBox, warn: (message: string) => void) => ({
+  lines: box.paragraphs.map((p) => paragraphText(p, warn)).filter((line) => line !== ""),
+  plain: box.paragraphs.map(plainText).filter((line) => line !== ""),
+});
 
 const EXTENSIONS = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif" } as const;
 
@@ -113,7 +119,7 @@ export function outlineFromFormatsDeck(deck: FormatsDeck, fileWarnings: string[]
     const warn = (message: string) => warnings.push(`slide ${i + 1}: ${message}`);
     const boxes = slide.shapes
       .filter((s): s is TextBox => s.type === "textbox")
-      .map((box) => ({ box, lines: textOf(box) }))
+      .map((box) => ({ box, ...textOf(box, warn) }))
       .filter((b) => b.lines.length > 0)
       .sort((a, b) => a.box.frame.y - b.box.frame.y || a.box.frame.x - b.box.frame.x);
     const pictures = slide.shapes.filter((s) => s.type === "picture");
@@ -125,7 +131,7 @@ export function outlineFromFormatsDeck(deck: FormatsDeck, fileWarnings: string[]
     const first = boxes[0];
     const isTitle = first !== undefined && (boxes.length > 1 || first.box.frame.y * scale < SLIDE_HEIGHT / 4);
     const body = isTitle ? boxes.slice(1) : boxes;
-    if (isTitle) lines.push(`# ${oneLine(first.lines.join(" "))}`);
+    if (isTitle) lines.push(`# ${first.plain.join(" ")}`);
     const picture = pictures[0];
     if (picture?.type === "picture") {
       const path = `image-${i + 1}.${EXTENSIONS[picture.mime]}`;
@@ -143,7 +149,7 @@ export function outlineFromFormatsDeck(deck: FormatsDeck, fileWarnings: string[]
       if (n > 0) lines.push("+++");
       lines.push(...group.map((line) => `- ${line.replaceAll("\n", " ")}`));
     });
-    const notes = (slide.notes ?? "").split(/\r?\n/).map((line) => oneLine(line)).filter((line) => line !== "");
+    const notes = (slide.notes ?? "").split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "");
     lines.push(...notes.map((line) => `> ${line}`));
     return lines.length > 0 ? lines.join("\n") : "layout: blank";
   });

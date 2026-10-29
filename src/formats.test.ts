@@ -84,6 +84,31 @@ describe("import", () => {
     expect(made.elements.some((e) => e.kind === "image" || e.kind === "table")).toBe(false);
   });
 
+  test("a bold title imports as plain text, and a bold italic run keeps bold with a warning", () => {
+    const run = (text: string, marks: ("bold" | "italic")[]) => ({ type: "text" as const, text, marks });
+    const box = (y: number, runs: ReturnType<typeof run>[]) => ({ type: "textbox" as const, frame: { x: 0, y, width: 100, height: 50 }, paragraphs: [runs] });
+    const out = outlineFromFormatsDeck({ width: 1280, height: 720, slides: [{ shapes: [box(10, [run("Big", ["bold"]), run(" news", [])]), box(300, [run("both", ["bold", "italic"]), run(" and ", []), run("em", ["italic"])])] }] });
+    expect(out.outline).toBe("# Big news\n- **both** and *em*");
+    expect(out.warnings).toEqual(["slide 1: bold italic text keeps only bold"]);
+    const outline = build("# **Big** news\n- *x*");
+    expect(outlineFromPptx(deckToPptx(outline).bytes).outline).toBe("# Big news\n- *x*");
+  });
+
+  test("speaker notes keep their text, stars included", () => {
+    const out = outlineFromFormatsDeck({ width: 1280, height: 720, slides: [{ shapes: [text(10, "T")], notes: "a * b\n\nsecond" }] });
+    expect(out.outline).toBe("# T\n> a * b\n> second");
+  });
+
+  test("an empty text box is not written", () => {
+    const { deck } = toFormatsDeck(build("layout: title-body"));
+    expect(deck.slides[0]!.shapes.filter((s) => s.type === "textbox")).toEqual([]);
+  });
+
+  test("more text than a box holds fails the add with TEXT_OVERFLOW, and the outline is still returned", () => {
+    const out = outlineFromFormatsDeck(model(text(20, "T"), text(300, ...Array.from({ length: 40 }, (_, i) => `line ${i}`))));
+    expect(() => Deck.create({ title: "T", author }).addSlidesFromOutline(out.outline, { author })).toThrow(/TEXT_OVERFLOW|needs 40 line/);
+  });
+
   test("a lone low text box is body text, and a high one is the title", () => {
     expect(outlineFromFormatsDeck(model(text(500, "low"))).outline).toBe("- low");
     expect(outlineFromFormatsDeck(model(text(20, "high"))).outline).toBe("# high");
