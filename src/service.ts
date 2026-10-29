@@ -13,6 +13,8 @@ import { renderDeck } from "./render/html.js";
 import { renderPresent } from "./render/present.js";
 
 const COLLECTION = "decks";
+/** One small doc for each deck, for the list. The deck doc holds the whole state, so a list never reads it. */
+const INDEX = "deck_index";
 
 /** A slide by id, or by 1-based position when the text is all digits. Slide ids start with a letter. */
 export type SlideSel = string | number;
@@ -27,6 +29,19 @@ function sniff(data: Uint8Array): string {
 
 /** The most bytes of deck state that a live room takes or a checkpoint saves. The room itself stops at 1.5 MiB. */
 export const MAX_LIVE_BYTES = 1_572_864;
+
+/** The most decks that one page of `list` returns, and the default. */
+export const MAX_LISTED = 200;
+const DEFAULT_LISTED = 50;
+
+export interface DeckSummary {
+  id: string;
+  title: string;
+  editedBy?: Principal;
+  machineMade: boolean;
+  /** Milliseconds since the epoch. */
+  savedAt: number;
+}
 
 export interface Ports {
   store: Store;
@@ -46,8 +61,11 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
     return saved ? Deck.fromUpdate(fromBase64(saved.update)) : fail("NO_DECK", `no deck "${id}"`);
   }
 
-  const save = (ops: StoreOps, id: string, deck: Deck) =>
-    ops.put(COLLECTION, id, { update: toBase64(deck.encode()), title: deck.outline().title });
+  const save = async (ops: StoreOps, id: string, deck: Deck) => {
+    const { title, editedBy, machineMade } = deck.outline();
+    await ops.put(COLLECTION, id, { update: toBase64(deck.encode()), title });
+    await ops.put(INDEX, id, { title, editedBy: { ...editedBy }, machineMade, savedAt: Date.now() });
+  };
 
   /** A transaction that kept conflicting gave up and wrote nothing. Report it with a code. */
   async function transact<R>(fn: (tx: StoreOps) => Promise<R>): Promise<R> {
@@ -125,6 +143,28 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
         await save(tx, id, Deck.create({ title: input.title, author: input.author }));
       });
       return { id };
+    },
+
+    /**
+     * The decks, newest edit first, with the last editor of each. A deck that nobody edited since the index
+     * was added is not listed until its next edit. The index holds the summary only, so a page never reads deck state.
+     */
+    async list(page: { limit?: number; cursor?: string } = {}): Promise<{ decks: DeckSummary[]; nextCursor?: string }> {
+      const limit = page.limit ?? DEFAULT_LISTED;
+      if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LISTED) fail("BAD_PATCH", `limit is a whole number from 1 to ${MAX_LISTED}`);
+      let found;
+      try {
+        found = await store.query(INDEX, { orderBy: { field: "savedAt", direction: "desc" }, limit, cursor: page.cursor });
+      } catch (error) {
+        if (page.cursor !== undefined && error instanceof Error && error.message === "invalid cursor") fail("BAD_PATCH", "the cursor is not one that this list gave");
+        throw error;
+      }
+      const decks = found.items.flatMap(({ id, data }): DeckSummary[] => {
+        const who = data.editedBy as Partial<Principal> | null | undefined;
+        if (typeof data.title !== "string" || typeof data.savedAt !== "number" || !Number.isFinite(data.savedAt)) return [];
+        return [{ id, title: data.title, editedBy: typeof who?.kind === "string" && typeof who.name === "string" ? (who as Principal) : undefined, machineMade: data.machineMade === true, savedAt: data.savedAt }];
+      });
+      return { decks, nextCursor: found.nextCursor };
     },
 
     async outline(id: string): Promise<DeckOutline> {
@@ -233,4 +273,4 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
 export type Service = ReturnType<typeof createService>;
 
 /** What the CLI and the MCP server call. The live client has the same shape, so either can stand behind them. */
-export type Operations = Omit<Service, "state" | "checkpoint" | "exists">;
+export type Operations = Omit<Service, "state" | "checkpoint" | "exists" | "list">;

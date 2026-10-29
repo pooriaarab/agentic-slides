@@ -90,6 +90,7 @@ curl -s -X POST localhost:8787/api/v1/slides/decks \
 
 | Route | Does |
 | --- | --- |
+| `GET /decks?limit=&cursor=` | One page of decks, newest edit first, with the last editor of each. `nextCursor` names the next page. |
 | `POST /decks` | Create a deck. |
 | `GET /decks/:deck` | Read the outline. |
 | `POST /decks/:deck/slides` | Add slides from `outline` or one `layout`. |
@@ -106,6 +107,32 @@ Images go in the `images` field as base64.
 
 A token can end in `;viewer` (for example `token=human:eve;viewer`). A viewer reads. Every write by a viewer gets 403.
 The default role is `editor`.
+
+## UI
+
+The Worker serves a small web UI at `/`. It uses the `agentic-design` package for tokens, controls, and
+overlays, and the typed client (`agentic-slides/client`) for every call. It has:
+
+- A deck list, with a form to make a deck.
+- A slide sorter and a slide canvas. Pick a text box, a shape, or an image. Edit its text, fill, or
+  description, and move it by drag, by the arrow keys, or by number.
+- Add, move, and delete slides. Add an image slide from a PNG or JPEG file.
+- Present mode: full screen, arrow keys, Page Up, Page Down, Space, Home, End, and Escape.
+- Live presence in the room of the deck. A mark on a slide says that an agent edited it.
+- Empty, loading, and error states. Light and dark themes. The UI works with the keyboard alone.
+
+Run it on your machine. Build first, because the Worker serves `dist/ui`:
+
+```sh
+npm ci && npm run build
+WRANGLER_SEND_METRICS=false npx wrangler dev --var SLIDES_REGION:unknown \
+  --var 'SLIDES_TOKENS:my-long-token-0123456789-abcdefghij=human:ada,agent-token-0123456789-abcdefghij=agent_of_human:bot'
+```
+
+Open `http://localhost:8787/` and type a token. The token names who edits, and a tab keeps it until you
+close it. An agent that uses the other token appears in presence, and its edits get the agent mark.
+
+The UI sends the token to the room as a WebSocket subprotocol (`bearer.<token>`), because a browser cannot set a header on a WebSocket. Only the room route reads it.
 
 ## SDK
 
@@ -220,7 +247,10 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
 - A change reaches the room before the server checks the size, so an edit that makes a deck too large for a room stays in the room and makes every save fail until someone removes it.
 - A live room and the HTTP API are two copies of a deck. A CLI or MCP call in a live room saves after each change, so the HTTP API sees it at once. An HTTP edit reaches a room on the next join, not at once. Save a room with a checkpoint.
 - A checkpoint holds at most 1.5 MiB. A deck over that cannot go in a room.
-- Elements cannot be added or deleted one by one yet.
+- Elements cannot be added or deleted one by one yet. The canvas edits the elements that a layout makes.
+- The UI shows an image as a box with its description. The API has no route to read one image yet.
+- The UI uses the room for presence only. Its edits go through the HTTP API, and it reads the deck again every 3 seconds.
+- The deck list reads a small index that each save writes. A deck that nobody edited since this version is not in the list until its next edit.
 
 ## Develop
 

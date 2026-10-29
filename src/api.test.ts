@@ -224,3 +224,76 @@ describe("image volume", () => {
     expect(Object.keys(decodeImages({ a: png }) ?? {})).toEqual(["a"]);
   });
 });
+
+describe("deck list", () => {
+  test("lists decks with the last editor, needs a token, and answers a viewer", async () => {
+    const call = appFor(`${TOKENS},viewer-token-0123456789-abcdefghij=human:eve;viewer`);
+    expect((await call("GET", "/decks")).status).toBe(401);
+    expect(await (await call("GET", "/decks", { token: HUMAN })).json()).toEqual({ decks: [] });
+    await call("POST", "/decks", { token: AGENT, body: { title: "Plan", id: "plan" } });
+    const listed = await call("GET", "/decks", { token: "viewer-token-0123456789-abcdefghij" });
+    expect(listed.status).toBe(200);
+    const { decks } = (await listed.json()) as { decks: { id: string; title: string; editedBy: object; machineMade: boolean; savedAt: number }[] };
+    expect(decks).toHaveLength(1);
+    expect(decks[0]).toMatchObject({ id: "plan", title: "Plan", editedBy: { kind: "agent_of_human", name: "bot" }, machineMade: true });
+    expect(Number.isFinite(decks[0]!.savedAt)).toBe(true);
+  });
+});
+
+describe("deck list pages", () => {
+  test("lists the newest edit first, pages with a cursor, and refuses a bad limit or cursor", async () => {
+    const call = appFor();
+    for (const id of ["one", "two", "three"]) {
+      await call("POST", "/decks", { token: HUMAN, body: { title: id, id } });
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    // An edit makes a deck the newest again.
+    await call("POST", "/decks/one/slides", { token: AGENT, body: { layout: "blank" } });
+    const first = (await (await call("GET", "/decks?limit=2", { token: HUMAN })).json()) as { decks: { id: string }[]; nextCursor?: string };
+    expect(first.decks.map((d) => d.id)).toEqual(["one", "three"]);
+    expect(first.nextCursor).toBeTypeOf("string");
+    const second = (await (await call("GET", `/decks?limit=2&cursor=${encodeURIComponent(first.nextCursor!)}`, { token: HUMAN })).json()) as { decks: { id: string }[]; nextCursor?: string };
+    expect(second.decks.map((d) => d.id)).toEqual(["two"]);
+    expect(second.nextCursor).toBeUndefined();
+    for (const bad of ["limit=0", "limit=201", "limit=x", "cursor=%00"]) expect((await call("GET", `/decks?${bad}`, { token: HUMAN })).status).toBe(400);
+  });
+});
+
+describe("room token as a subprotocol", () => {
+  const call = appFor();
+  const offer = (token: string) => ({ "sec-websocket-protocol": `bearer.${token}` });
+
+  test("the room route reads the token, and a wrong token is refused", async () => {
+    // A token that passes is past auth, and this app has no live rooms, so the answer is 404.
+    expect((await call("GET", "/decks/x/ws", { headers: offer(HUMAN) })).status).toBe(404);
+    expect((await call("GET", "/decks/x/ws", { headers: offer(`${HUMAN}x`) })).status).toBe(401);
+    expect((await call("GET", "/decks/x/ws", { headers: { "sec-websocket-protocol": "chat, other" } })).status).toBe(401);
+  });
+
+  test("no other route reads it, and a header beats it", async () => {
+    expect((await call("GET", "/me", { headers: offer(HUMAN) })).status).toBe(401);
+    expect((await call("GET", "/decks/x/ws", { token: `${HUMAN}x`, headers: offer(HUMAN) })).status).toBe(401);
+  });
+});
+
+describe("deck index", () => {
+  const ada = { kind: "human", name: "ada" } as const;
+
+  test("a refused edit leaves the list entry as it was", async () => {
+    const service = createService({ store: createMemoryStore(), blobs: createMemoryBlobs() });
+    await service.create({ title: "Plan", id: "plan", author: ada });
+    const before = await service.list();
+    await new Promise((r) => setTimeout(r, 5));
+    await expect(service.checkpoint("plan", new Uint8Array([1, 2, 3]), [ada])).rejects.toMatchObject({ code: "INVALID_UPDATE" });
+    await expect(service.setSlide("plan", 1, { outline: "# no such slide", author: ada })).rejects.toBeTruthy();
+    expect(await service.list()).toEqual(before);
+  });
+
+  test("a store fault on a page is a server error, and only a bad cursor is a client error", async () => {
+    const store = createMemoryStore();
+    const down = Object.assign(Object.create(store), { query: async () => { throw new Error("D1 is down"); } });
+    const service = createService({ store: down, blobs: createMemoryBlobs() });
+    await expect(service.list({ cursor: "abc" })).rejects.toThrow("D1 is down");
+    await expect(createService({ store, blobs: createMemoryBlobs() }).list({ cursor: "abc" })).rejects.toMatchObject({ code: "BAD_PATCH" });
+  });
+});
