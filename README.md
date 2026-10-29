@@ -412,6 +412,19 @@ await live.save(); // the server checks the room state, then stores it
 await live.leave();
 ```
 
+## Account export and erase
+
+A host that must export or erase the data of one person or agent uses `agentic-slides/account`. It never reads the storage layout.
+
+```ts
+import { slidesAccount } from "agentic-slides/account";
+
+const data = await slidesAccount.exportAccount({ kind: "human", id: "ana" }, { store });
+const counts = await slidesAccount.eraseAccount({ kind: "human", id: "ana" }, { store });
+```
+
+The export has three collections: `decks` (decks the subject owns, with the outline), `grants` (roles the subject holds), and `authored` (slides and elements the subject wrote in decks of other people). The erase deletes each deck where the subject is the only owner. It removes the other roles. It replaces the subject as author with `erased` and keeps the author kind. The outline of an owned deck is exported as it is, with the author names of other people in it. A second erase counts zero. Run it with writes stopped. The plug-in covers authors whose names are safe subject ids (letters, digits, `_`, `-`, up to 128). A record of another author stays. Pass `live` (the `erase` of the live rooms) so the erase clears the room of each deck that it deletes or changes. A room keeps its own copy of the deck and its authors. Without `live`, the host must clear those rooms, or a room can save the old names again. Run `migrateGrants` of `agentic-identity` before the erase: a grant from an old store has no subject kind, and the erase cannot find it. Audit rows of grant changes belong to `agentic-identity`. When a deck has two owners, the erase revokes the grant of the subject through `agentic-identity`, and that writes one audit row. The removal of an editor or viewer role writes none. Erase the audit rows after this plug-in.
+
 ## Features
 
 - Slides on a fixed 1280 by 720 space (16:9), kept in a Yjs document.

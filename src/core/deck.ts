@@ -382,6 +382,51 @@ export class Deck {
     }
   }
 
+  /** Every record that holds an author: the deck, each slide, each element. */
+  private *authored(): Generator<{ map: YMap; slideId?: string; elementId?: string }> {
+    yield { map: this.meta };
+    for (const [slideId, slide] of this.slides.entries()) {
+      yield { map: slide, slideId };
+      for (const element of (slide.get("elements") as Y.Array<unknown> | undefined)?.toArray() ?? []) {
+        if (element instanceof Y.Map) yield { map: element as YMap, slideId, elementId: element.get("id") as string };
+      }
+    }
+  }
+
+  /** The records where one of `who` made or last changed the content. Slide ids are in no order. */
+  authorship(who: Principal[]): { slideId?: string; elementId?: string; createdBy?: Principal; editedBy?: Principal }[] {
+    const is = (value: unknown) => who.some((p) => (value as Principal | undefined)?.kind === p.kind && (value as Principal | undefined)?.name === p.name);
+    const out = [];
+    for (const { map, slideId, elementId } of this.authored()) {
+      const createdBy = is(map.get("createdBy")) ? readPrincipal(map.get("createdBy")) : undefined;
+      const editedBy = is(map.get("editedBy")) ? readPrincipal(map.get("editedBy")) : undefined;
+      if (createdBy || editedBy) out.push({ ...(slideId === undefined ? {} : { slideId }), ...(elementId === undefined ? {} : { elementId }), ...(createdBy ? { createdBy } : {}), ...(editedBy ? { editedBy } : {}) });
+    }
+    return out;
+  }
+
+  /**
+   * Replace each author in `who` with the same kind and the name `name`, so the machine-made label stays. It does not stamp
+   * the deck as edited. It returns how many records changed: a record that holds `name` already is not a change.
+   */
+  anonymise(who: Principal[], name: string): number {
+    let changed = 0;
+    this.doc.transact(() => {
+      for (const { map } of this.authored()) {
+        let hit = false;
+        for (const key of ["createdBy", "editedBy"]) {
+          const value = map.get(key) as Principal | undefined;
+          if (value && value.name !== name && who.some((p) => p.kind === value.kind && p.name === value.name)) {
+            map.set(key, { kind: value.kind, name });
+            hit = true;
+          }
+        }
+        if (hit) changed++;
+      }
+    });
+    return changed;
+  }
+
   outline(): DeckOutline {
     const editedBy = readPrincipal(this.meta.get("editedBy"));
     return {

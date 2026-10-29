@@ -2,7 +2,7 @@
 
 This file lists the notable changes to this project, by version.
 
-## 0.12.1 - 2026-10-29
+## 0.13.1 - 2026-10-29
 
 ### Fixed
 
