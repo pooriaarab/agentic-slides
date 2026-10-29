@@ -2,6 +2,12 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.6.1 - 2026-10-29
+
+### Fixed
+
+- The MCP bin, `agentic-slides-mcp`, answers `--help` and `-h` with the usage text and exits with 0. It answers `--version` and `-V` with the version. Before this fix, these flags started the stdio server, so the command did not return.
+
 ## 0.6.0 - 2026-10-29
 
 Read the breaking changes before you upgrade or deploy.
