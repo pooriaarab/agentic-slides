@@ -7,7 +7,7 @@ This file lists the notable changes to this project, by version.
 ### Changed
 
 - The room WebSocket reads the token from the subprotocol `agentic-slides.bearer.<token>`, with the token in base64url. The client must also offer `agentic-slides`. The old `bearer.<token>` form is gone. The bundled UI sends the new form.
-- The package needs `agentic-identity` 0.6.0 or later. It uses `agentic-identity/http` for the room token, and the kinds and the principal check come from `agentic-identity`. A principal name must now use only A-Z a-z 0-9 . _ - . A name with a space or another character makes the token setting invalid, and the server then refuses every request. A token must use only A-Z a-z 0-9 _ - and have 32 to 512 characters, because the room route needs it.
+- The package needs `agentic-identity` 0.6.0 or later. It uses `agentic-identity/http` for the room token, and the kinds and the principal check come from `agentic-identity`. A principal name must now use only A-Z a-z 0-9 . _ - . A name with a space or another character makes the token setting invalid, and the server then refuses every request. The same rule applies to `--as`, `$SLIDES_AUTHOR`, and the MCP author. A token must use only A-Z a-z 0-9 _ - and have 32 to 512 characters, because the room route needs it.
 
 ## 0.6.1 - 2026-10-29
 
