@@ -69,6 +69,14 @@ test("--version --help without the mcp word prints the version, as before", asyn
   expect(result.stdout).toBe(`${version}\n`);
 });
 
+test("mcp --version --help prints usage, because help is checked first, as in the CLI", async () => {
+  const result = await run(["mcp", "--version", "--help"]);
+  expect(result.timedOut).toBe(false);
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("Usage: agentic-slides-mcp [mcp] [--help | --version]");
+  expect(result.stderr).toBe("");
+});
+
 test.each(["--version", "-V"])("mcp %s prints the package version and exits 0", async (flag) => {
   const result = await run(["mcp", flag]);
   expect(result.timedOut).toBe(false);
