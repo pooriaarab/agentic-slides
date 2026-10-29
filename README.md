@@ -45,6 +45,21 @@ npx agentic-slides export plan --out deck.pdf
 ```
 
 Decks live in `.slides/` (or `--dir`, or `$SLIDES_DIR`). Also: `list`, `move`, `delete` (a slide), `delete-deck`, and `edit --outline`.
+
+To share a deck, use a server (see [Share a deck](#share-a-deck)). A local store has no roles, so these commands need `--live` and `$SLIDES_LIVE_TOKEN`:
+
+```sh
+export SLIDES_LIVE_URL=https://slides.example.com SLIDES_LIVE_TOKEN=<token>
+npx agentic-slides grant plan --subject human:bob --role editor   # give a role (owner only)
+npx agentic-slides revoke plan --subject human:bob                # take it away
+npx agentic-slides access plan                                    # grants, invites, links (owner only)
+npx agentic-slides invite plan --role viewer --handle bot         # or --email <address>. Prints the invite id
+npx agentic-slides accept-invite <id>                             # an agent accepts, by the name of its token
+npx agentic-slides share-link plan --role viewer --expires-in-ms 86400000   # prints the link token once
+npx agentic-slides revoke-link plan --link <id>
+```
+
+A refused call prints `{"error":{"code":...}}` and exits 1: `UNAUTHORIZED` for a bad token, `FORBIDDEN` for a role that is too low, `NO_DECK` for a deck you cannot see.
 Run `npx agentic-slides --help` for all flags.
 
 ### Join a live room
@@ -74,6 +89,10 @@ claim to be a human, and the server refuses to start with a `human` author. A fa
 To join live rooms, set `SLIDES_LIVE_URL` and `SLIDES_LIVE_TOKEN` in the server environment. The server asks the
 Worker who the token is, uses that author, and refuses a person's token. Each tool call joins the room, makes
 its change, saves it, and leaves. A tool call never carries a credential.
+
+In a live setting the server also has the sharing tools: `list_access`, `grant_access`, `revoke_access`, `invite`,
+`accept_invite`, `create_share_link`, and `revoke_share_link`. They call the HTTP API, so the roles of the token apply.
+A local store has no roles, so these tools do not exist there.
 
 ## Live demo
 
@@ -268,10 +287,19 @@ const slides = createClient({ baseUrl: "https://slides.example.com", token });
 await slides.createDeck({ title: "Talk", id: "talk" });
 const { slideIds } = await slides.addSlides("talk", { outline: "# Hello\n- first point" });
 const pdf = await slides.exportPdf("talk", { signal: AbortSignal.timeout(10_000) });
+
+// Share the deck. These calls need an owner, except acceptInvite and readShared.
+await slides.grant("talk", { subject: { kind: "human", id: "bob" }, role: "editor" });
+const { id: inviteId } = await slides.invite("talk", { role: "viewer", handle: "bot" });
+const { id: linkId, token: linkToken } = await slides.createShareLink("talk", { role: "viewer", expiresInMs: 86_400_000 });
+const { grants, invites, links } = await slides.access("talk");
+await slides.revokeShareLink("talk", linkId);
+await slides.revoke("talk", { kind: "human", id: "bob" });
 ```
 
 There is one method for each route: `health`, `me`, `createDeck`, `outline`, `addSlides`, `setSlide`,
-`editElement`, `moveSlide`, `deleteSlide`, `render`, `exportPdf`, `state`, and `checkpoint`. Each method
+`editElement`, `moveSlide`, `deleteSlide`, `render`, `exportPdf`, `state`, and `checkpoint`. For sharing, it has
+`access`, `grant`, `revoke`, `invite`, `acceptInvite`, `createShareLink`, `revokeShareLink`, and `readShared`. `readShared` also sends the token of the client, and the server needs it to be valid. A visitor with only a link token reads with `GET /shared/:deck` and the header. Each method
 takes `{ signal }` as its last argument. Pass `fetch` to `createClient` to replace the global one.
 
 When the API refuses a call, the method throws `SlidesApiError`. It has `status` (the HTTP status),

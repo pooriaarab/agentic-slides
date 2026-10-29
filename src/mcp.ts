@@ -6,6 +6,7 @@ import { z } from "zod";
 import { COMMAND } from "./brand.js";
 import { SlidesError, checkAuthor, fail, type Principal } from "./core/principal.js";
 import { decodeImages, images, patch } from "./schemas.js";
+import { SlidesApiError, createClient, type SlidesClient } from "./client.js";
 import { createLiveService, whoAmI, type LiveOptions } from "./live.js";
 import { createService, type Operations } from "./service.js";
 import { createFileBlobs, createFileStore } from "./store/file.js";
@@ -15,6 +16,11 @@ export interface McpDeps {
   service: Operations;
   /** The author of every edit. The server sets it, so a model cannot claim to be a human. */
   author?: Principal;
+  /**
+   * The server that holds the roles. With it, the sharing tools exist. Without it (a local store has no roles), they do not.
+   * The client holds the token, so a tool call never carries a credential.
+   */
+  sharing?: Pick<SlidesClient, "access" | "grant" | "revoke" | "invite" | "acceptInvite" | "createShareLink" | "revokeShareLink">;
 }
 
 type Result = { content: { type: "text"; text: string }[]; isError?: true };
@@ -24,7 +30,7 @@ const ok = (value: unknown): Result => ({ content: [{ type: "text", text: JSON.s
 const slide = z.union([z.string(), z.number()]).describe("A slide id, or its 1-based position.");
 const deck = z.string().describe("The deck id.");
 
-export function createMcpServer({ service, author = { kind: "agent", name: "mcp-client" } }: McpDeps): McpServer {
+export function createMcpServer({ service, author = { kind: "agent", name: "mcp-client" }, sharing }: McpDeps): McpServer {
   if (checkAuthor(author).kind === "human") fail("INVALID_AUTHOR", "an MCP server acts for a model, so it cannot write as a human. Use agent, agent_of_human, agent_of_agent, or user_token");
   const server = new McpServer({ name: COMMAND, version: VERSION });
   const edit = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
@@ -41,7 +47,7 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
       try {
         return ok(await run(args));
       } catch (error) {
-        if (!(error instanceof SlidesError)) throw error;
+        if (!(error instanceof SlidesError) && !(error instanceof SlidesApiError)) throw error;
         const failure = { error: { code: error.code, message: error.message, issues: error.issues } };
         return { ...ok(failure), isError: true };
       }
@@ -85,6 +91,30 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
     const { bytes, warnings } = await service.exportPdf(a.deck);
     return { pdfBase64: toBase64(bytes), bytes: bytes.length, warnings };
   });
+  if (sharing) {
+    const role = z.enum(["owner", "editor", "commenter", "viewer"]).describe("owner may share and delete. editor may change slides. commenter and viewer may read.");
+    const subject = z.object({ kind: z.enum(["human", "agent"]), id: z.string() }).describe("A person (human) or an agent. See `subject` in the answer of GET /me for a token.");
+    const owner = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
+    tool("list_access", "List who can reach a deck: grants, invites, and share links. Only an owner may. A link token and an invite email are never shown.", { deck, limit: z.number().int().optional(), cursor: z.string().optional(), inviteCursor: z.string().optional(), linkCursor: z.string().optional() }, read, (a) => sharing.access(a.deck, { limit: a.limit, cursor: a.cursor, inviteCursor: a.inviteCursor, linkCursor: a.linkCursor }));
+    tool("grant_access", "Give a person or an agent a role on a deck. Only an owner may.", { deck, subject, role }, owner, async (a) => (await sharing.grant(a.deck, { subject: a.subject, role: a.role }), { ok: true }));
+    tool("revoke_access", "Take a role away from a person or an agent. The last owner cannot be removed.", { deck, subject }, { readOnlyHint: false, destructiveHint: true, openWorldHint: false }, async (a) => (await sharing.revoke(a.deck, a.subject), { ok: true }));
+    tool(
+      "invite",
+      "Invite a person by email, or an agent by handle. It sends no message: give the invite id to the invitee. Give email or handle, not both.",
+      { deck, role, email: z.string().optional(), handle: z.string().optional(), expiresInMs: z.number().int().optional() },
+      owner,
+      (a) => sharing.invite(a.deck, { role: a.role, email: a.email, handle: a.handle, expiresInMs: a.expiresInMs }),
+    );
+    tool("accept_invite", "Accept an invite that names this agent's handle. The handle is the name of the token.", { id: z.string() }, owner, async (a) => (await sharing.acceptInvite(a.id), { ok: true }));
+    tool(
+      "create_share_link",
+      "Make a share link for a deck. The token comes back once. A link gives read access only.",
+      { deck, role, expiresInMs: z.number().int().optional(), signedInOnly: z.boolean().optional() },
+      owner,
+      (a) => sharing.createShareLink(a.deck, { role: a.role, expiresInMs: a.expiresInMs, signedInOnly: a.signedInOnly }),
+    );
+    tool("revoke_share_link", "Revoke a share link by its id.", { deck, link: z.string() }, { readOnlyHint: false, destructiveHint: true, openWorldHint: false }, async (a) => (await sharing.revokeShareLink(a.deck, a.link), { ok: true }));
+  }
   return server;
 }
 
@@ -101,5 +131,5 @@ export async function startMcp(options: { dir?: string; author?: Principal; live
  */
 export async function startLiveMcp(live: LiveOptions): Promise<void> {
   const { author } = await whoAmI(live.server, live.token);
-  await createMcpServer({ service: createLiveService(live), author }).connect(new StdioServerTransport());
+  await createMcpServer({ service: createLiveService(live), author, sharing: createClient({ baseUrl: live.server, token: live.token }) }).connect(new StdioServerTransport());
 }
