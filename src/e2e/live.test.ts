@@ -64,6 +64,49 @@ describe("a deck in a live room", () => {
     }
   }, 120_000);
 
+  test("a revoke closes the open socket of an agent, and the agent cannot connect again", async () => {
+    expect((await api("/decks", HUMAN, { method: "POST", body: JSON.stringify({ title: "Revoke", id: "revoke" }) })).status).toBe(201);
+    await shareAll(server.url, HUMAN, "revoke", "ada");
+    const statuses: string[] = [];
+    const socket = await SyncClient.connect({
+      url: `${server.url.replace("http", "ws")}/api/v1/slides/decks/revoke/ws`,
+      headers: { authorization: `Bearer ${AGENT}` },
+      presence: { name: "probe" },
+      onStatus: (status) => statuses.push(status),
+    });
+    try {
+      expect((await api("/decks/revoke/grants?subjectKind=agent&subjectId=agent_of_human_bot", HUMAN, { method: "DELETE" })).status).toBe(200);
+      for (let i = 0; i < 100 && statuses.at(-1) !== "disconnected"; i++) await new Promise((r) => setTimeout(r, 100));
+      expect(statuses.at(-1)).toBe("disconnected");
+      // The grant is gone, so the role refuses a new connect. The ban is not checked here.
+      await expect(room("revoke", AGENT)).rejects.toThrow();
+    } finally {
+      await socket.disconnect();
+    }
+  }, 60_000);
+
+  test("a grant of viewer to an open agent socket drops its writes", async () => {
+    expect((await api("/decks", HUMAN, { method: "POST", body: JSON.stringify({ title: "Cap", id: "cap" }) })).status).toBe(201);
+    await shareAll(server.url, HUMAN, "cap", "ada");
+    const socket = await room("cap", AGENT);
+    try {
+      const granted = await api("/decks/cap/grants", HUMAN, { method: "POST", body: JSON.stringify({ subjectKind: "agent", subjectId: "agent_of_human_bot", role: "viewer" }) });
+      expect(granted.status).toBe(200);
+      await socket.edit((doc) => new Deck(doc).addSlide({ layout: "blank" }, bot));
+      await socket.flush();
+      expect(socket.denied.length).toBeGreaterThan(0);
+    } finally {
+      await socket.disconnect();
+    }
+    // A second person reads the room. The refused write is not in it.
+    const reader = await room("cap", HUMAN);
+    try {
+      expect(new Deck(reader.doc).outline().slides).toHaveLength(0);
+    } finally {
+      await reader.disconnect();
+    }
+  }, 60_000);
+
   test("the room refuses a missing token, a missing deck, and a viewer's edit", async () => {
     await expect(room("talk", "wrong-token-0123456789-abcdefghijk")).rejects.toThrow();
     await expect(room("nodeck", HUMAN)).rejects.toThrow();

@@ -313,13 +313,13 @@ describe("review fixes", () => {
     await call("DELETE", "/decks/plan/grants?subjectKind=human&subjectId=bob", { token: ADA });
     await call("DELETE", "/decks/plan/grants?subjectKind=agent&subjectId=agent_of_human_eve", { token: ADA });
     expect(room).toEqual([
-      "role plan human:bob viewer",
-      "role plan human:bob null",
-      "role plan agent:agent_of_human_eve viewer",
-      "role plan agent_of_human:eve viewer",
-      "revoke plan human:bob",
-      "revoke plan agent:agent_of_human_eve",
-      "revoke plan agent_of_human:eve",
+      "role plan human.bob viewer",
+      "role plan human.bob null",
+      "role plan agent.agent_of_human_eve viewer",
+      "role plan agent_of_human.eve viewer",
+      "revoke plan human.bob",
+      "revoke plan agent.agent_of_human_eve",
+      "revoke plan agent_of_human.eve",
     ]);
   });
 
@@ -331,7 +331,7 @@ describe("review fixes", () => {
       room.length = 0;
       const response = await app.request(`${BASE}/decks/plan/ws`, { headers: { authorization: `Bearer ${BOB}`, upgrade: "websocket" } });
       expect(response.status, role).toBe(200);
-      expect(room, role).toEqual([`connect plan human:bob ${role === "editor" ? "editor" : "viewer"}`]);
+      expect(room, role).toEqual([`connect plan human.bob ${role === "editor" ? "editor" : "viewer"}`]);
     }
     expect((await app.request(`${BASE}/decks/plan/ws`, { headers: { authorization: `Bearer ${EVE}`, upgrade: "websocket" } })).status).toBe(404);
   });
@@ -423,7 +423,7 @@ describe("second review fixes", () => {
     const { id } = (await call("POST", "/decks/plan/invites", { token: ADA, body: { role: "editor", handle: "bot" } })).json;
     room.length = 0;
     expect((await call("POST", "/invites/accept", { token: BOT, body: { id } })).status).toBe(200);
-    expect(room).toEqual(["role plan agent:bot null"]);
+    expect(room).toEqual(["role plan agent.bot null"]);
   });
 
   test("an owner with a viewer token gets 403, not 404, on a route that needs an owner", async () => {
@@ -489,7 +489,7 @@ describe("third review fixes", () => {
     const { id } = (await call("POST", "/decks/plan/invites", { token: ADA, body: { role: "viewer", handle: "bot" } })).json;
     room.length = 0;
     expect((await call("POST", "/invites/accept", { token: BOT, body: { id } })).status).toBe(200);
-    expect(room).toEqual(["role plan agent:bot null"]);
+    expect(room).toEqual(["role plan agent.bot null"]);
     expect((await call("POST", "/decks/plan/slides", { token: BOT, body: OUTLINE })).status).toBe(201);
   });
 
@@ -512,7 +512,7 @@ describe("fourth review fixes", () => {
     await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "agent", subjectId: "bot", role: "viewer" } });
     room.length = 0;
     expect((await call("POST", "/invites/accept", { token: BOT, body: { id } })).status).toBe(200);
-    expect(room).toEqual(["role plan agent:bot viewer"]);
+    expect(room).toEqual(["role plan agent.bot viewer"]);
   });
 
   test("a list that stops at its scan limit puts the cursor after the last deck that it returns", async () => {

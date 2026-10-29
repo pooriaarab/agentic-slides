@@ -2,6 +2,25 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.13.1 - 2026-10-29
+
+### Changed
+
+- `agentic-identity` is now 0.9.x. The range moves from `^0.7.0` to `^0.9.0`.
+- `agentic-formats` is now 0.4.x. The range moves from `^0.3.0` to `^0.4.2`.
+- `agentic-realtime` is now 0.4.x. The range moves from `^0.4.0` to `^0.4.4`. It uses `agentic-identity` 0.9, the same copy as this package, so the install has one copy of the id rule.
+- A live room principal id is `<kind>.<name>`, for example `human.ada`. It was `<kind>:<name>`. `agentic-realtime` 0.4.2 takes only ids of the `agentic-identity` rule, and that rule has no colon. The checkpoint label check still reads the `<kind>:<name>` key, so a label keeps its meaning.
+- A live room refuses a token whose room id is longer than 128 characters. Its `/ws` call answers 403 `FORBIDDEN`. The room id is the kind, a dot, and the name. So the longest name is 122 characters for `human` and `agent`, 117 for `user_token`, and 113 for `agent_of_human` and `agent_of_agent`. Such a token still reads and writes the deck over HTTP.
+
+### Fixed
+
+- With `agentic-realtime` 0.4.2 or later, a connect to a live room, a grant, a revoke, or an invite on a live deck no longer answers 500 `INTERNAL`. The room refused the colon ids that the slides code sent. A revoke or a role change now skips an id that the room would refuse, so it cannot stop half way. An install that pins `agentic-realtime` 0.4.0 or 0.4.1 has no id check, so this error did not occur there.
+
+### Upgrade
+
+- A ban or a role cap that an earlier version stored under `<kind>:<name>` does not apply to the `<kind>.<name>` id. The old entries stay in the room storage. They count toward the room limit on caps and bans, and the Worker cannot clear them. A revoked grant already stops a new connect, because the deck routes check the role first. The room ban is a second layer. After you deploy, revoke again each person or agent, so the room also holds a ban under the new id.
+- Cloudflare restarts every Durable Object on a deploy, and that disconnects its WebSockets. So a live client reconnects after the deploy, and its new socket has the new id. A revoke or a lower role with the new id reaches every socket from then on.
+
 ## 0.12.0 - 2026-10-29
 
 ### Changed

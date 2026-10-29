@@ -5,7 +5,7 @@ import { COMMAND } from "./brand.js";
 import type { Realtime } from "agentic-realtime";
 import { acceptWebSocketProtocol, principalFromWebSocketRequest } from "agentic-identity/http";
 import { EraseRefusedError, MAX_OWNERS_ON_ERASE, ROLES, StoreConflictError, createSharing, type Auth, type Json, type PrincipalContext, type Role, type Store, type Subject } from "agentic-identity";
-import { DECK, DECK_ID, contextOf, roomPrincipals, subjectOf } from "./access.js";
+import { DECK, DECK_ID, contextOf, keyOfRoomPrincipal, roomPrincipalFits, roomPrincipalId, roomPrincipals, subjectOf } from "./access.js";
 import { ConfigError, NotGrantedError, type Authenticator, type Caller, type SlidesRole } from "./auth.js";
 import { SlidesError, fail, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
 import { toBase64 } from "./bytes.js";
@@ -209,7 +209,9 @@ export function createApp({ service, auth, live, principals = [], trusted, store
     const id = c.req.param("deck");
     await service.exists(id); // a deck that does not exist has no room
     const { kind, name } = c.get("author");
-    const room = await live(c.env).connect(id, c.req.raw, { principal: { id: `${kind}:${name}`, kind }, role: c.get("role"), name });
+    // The room refuses an id that is too long. Refuse it here as a clean 403, not a 500 from the room.
+    if (!roomPrincipalFits(kind, name)) return c.json(failure("FORBIDDEN", "This name is too long for a live room."), 403);
+    const room = await live(c.env).connect(id, c.req.raw, { principal: { id: roomPrincipalId(kind, name), kind }, role: c.get("role"), name });
     // The browser closes the socket unless the answer names the subprotocol that it offered. The answer never names the entry with the token.
     return acceptWebSocketProtocol(c.req.raw, room, ROOM_PROTOCOL);
   });
@@ -226,7 +228,12 @@ export function createApp({ service, auth, live, principals = [], trusted, store
       // A token that was removed keeps its record in the room, but its label is no longer trusted.
       const seen = live ? (await live(c.env).meta(id)).contributors : [];
       const known: Principal[] = [];
-      for (const who of seen) if (configured.has(who.id) || (await trusted?.(who.id))) known.push(parsePrincipal(who.id));
+      for (const who of seen) {
+        const key = keyOfRoomPrincipal(who.id);
+        // The kind of the room record and the kind in the id must agree. A record that does not agree is not trusted.
+        if (!key.startsWith(`${who.kind}:`)) continue;
+        if (configured.has(key) || (await trusted?.(key))) known.push(parsePrincipal(key));
+      }
       const allowed = [c.get("author"), ...known];
       await service.checkpoint(id, update, allowed);
       return c.json({ ok: true });
