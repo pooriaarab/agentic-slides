@@ -7,7 +7,7 @@ import { MAX_OWNERS_ON_ERASE, SUBJECT_KINDS, createSharing, type Json, type Stor
 import { checkSubject, DECK, principalsOf } from "./access.js";
 import { fromBase64, toBase64 } from "./bytes.js";
 import { Deck } from "./core/deck.js";
-import { readPrincipal } from "./core/principal.js";
+import { fail, readPrincipal } from "./core/principal.js";
 
 const COLLECTION = "decks";
 const INDEX = "deck_index";
@@ -37,7 +37,7 @@ export interface SlidesAccount {
   /**
    * Hard deletes each deck where the subject is the only owner, with its sharing records. It removes the other roles of the
    * subject, and it replaces the subject as author in the decks that stay with the name `erased` (the kind stays). Counts by
-   * the collection names of the export. A repeat counts zero. Run it with writes stopped. With `deps.live`, it clears the room of each deck that it deletes or changes. Without it, the host must do that. Images stay in the blob store: other decks can use the same image.
+   * the collection names of the export. `grants` counts each role removed, the owner role of a deleted deck too. A repeat counts zero. Run it with writes stopped. With `deps.live`, it clears the room of each deck that it deletes or changes. Without it, the host must do that. Images stay in the blob store: other decks can use the same image.
    */
   eraseAccount(subject: Subject, deps: SlidesAccountDeps): Promise<Record<SlidesCollection, number>>;
 }
@@ -70,10 +70,16 @@ const authorsOf = (subject: Subject) => {
   return all.length > 1 ? all.filter((p) => p.kind !== "agent") : all;
 };
 
+/** The subject, checked. The name `erased` is the placeholder of an earlier erase, so no one holds it as an id. */
+const subjectOf = (subject: Subject): Subject => {
+  const checked = checkSubject(subject);
+  return checked.id === ERASED_NAME ? fail("INVALID_AUTHOR", `"${ERASED_NAME}" is the placeholder of an erased author, not a subject`) : checked;
+};
+
 export const slidesAccount: SlidesAccount = {
   id: "slides",
   async exportAccount(subject, { store }) {
-    const who = checkSubject(subject);
+    const who = subjectOf(subject);
     const grants = await grantsOf(store, who);
     const owned = new Set(grants.filter((g) => g.role === "owner").map((g) => g.deckId));
     const decks: Record<string, Json>[] = [];
@@ -95,7 +101,7 @@ export const slidesAccount: SlidesAccount = {
   },
 
   async eraseAccount(subject, { store, live }) {
-    const who = checkSubject(subject);
+    const who = subjectOf(subject);
     const sharing = createSharing(store);
     const ctx = { principalId: who.id, kind: who.kind, chain: [{ id: who.id, kind: who.kind }], scopes: [`${DECK}:admin`] };
     const counts = { decks: 0, grants: 0, authored: 0 };

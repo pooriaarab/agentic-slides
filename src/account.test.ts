@@ -159,14 +159,11 @@ describe("slidesAccount", () => {
     expect(rooms).not.toContain("untouched");
   });
 
-  it("counts zero on a repeat for a subject named like the erased name", async () => {
-    const { store, decks, make } = await setup();
-    await make("d", { kind: "human", id: "bo" });
-    await decks.addSlides("d", { outline: "# A", author: { kind: "human", name: "ana" } });
+  it("refuses the placeholder name as a subject, so an export never shows the records of other erased people", async () => {
+    const { store } = await setup();
     const erased: Subject = { kind: "human", id: "erased" };
-    await slidesAccount.eraseAccount(ana, { store });
-
-    expect(await slidesAccount.eraseAccount(erased, { store })).toEqual({ decks: 0, grants: 0, authored: 0 });
+    await expect(slidesAccount.exportAccount(erased, { store })).rejects.toMatchObject({ code: "INVALID_AUTHOR" });
+    await expect(slidesAccount.eraseAccount(erased, { store })).rejects.toMatchObject({ code: "INVALID_AUTHOR" });
   });
 
   it("keeps the kind of an erased agent author", async () => {
