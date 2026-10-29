@@ -2,7 +2,18 @@
 
 This file lists the notable changes to this project, by version.
 
-## Unreleased
+## 0.6.0 - 2026-10-29
+
+No breaking changes.
+
+### Added
+
+- **`agentic-slides/worker`.** The package exports its Worker entry as a subpath, so a host can import the Worker from npm. The README shows how to use it.
+- **A live demo.** `wrangler.demo.jsonc` deploys a demo Worker, with its own D1 database and R2 bucket in the EU. `npm run deploy:demo` runs the deploy. The README has a Live demo section with the URL and the steps to redeploy. The demo token is a Worker secret only.
+
+### Changed
+
+- The dependencies are the latest npm releases: `agentic-identity` 0.5.0 and `agentic-realtime` 0.4.0. The `agentic-design` dev dependency is 0.2.0. The API, the SDK, the CLI, and the MCP server did not change.
 
 ## 0.5.0 - 2026-10-29
 
