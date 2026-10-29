@@ -44,11 +44,13 @@ test.each(["--help", "-h"])("%s prints usage to stdout and exits 0 within 5 s", 
 }, 10_000);
 
 test.each(["--version", "-V"])("%s prints the package version and exits 0", async (flag) => {
+  const started = Date.now();
   const result = await run([flag]);
   expect(result.timedOut).toBe(false);
   expect(result.code).toBe(0);
   expect(result.stdout).toBe(`${version}\n`);
   expect(result.stderr).toBe("");
+  expect(Date.now() - started).toBeLessThan(5000);
 });
 
 // The `mcp` word may come first, as the package CLI takes it. Each form must answer and exit, never start the server.
@@ -63,27 +65,33 @@ test.each(["--help", "-h"])("mcp %s prints usage to stdout and exits 0 within 5 
 }, 10_000);
 
 test("--version --help without the mcp word prints the version, as before", async () => {
+  const started = Date.now();
   const result = await run(["--version", "--help"]);
   expect(result.timedOut).toBe(false);
   expect(result.code).toBe(0);
   expect(result.stdout).toBe(`${version}\n`);
   expect(result.stderr).toBe("");
+  expect(Date.now() - started).toBeLessThan(5000);
 });
 
 test("mcp --version --help prints usage, because help is checked first, as in the CLI", async () => {
+  const started = Date.now();
   const result = await run(["mcp", "--version", "--help"]);
   expect(result.timedOut).toBe(false);
   expect(result.code).toBe(0);
   expect(result.stdout).toContain("Usage: agentic-slides-mcp [mcp] [--help | --version]");
   expect(result.stderr).toBe("");
+  expect(Date.now() - started).toBeLessThan(5000);
 });
 
 test.each(["--version", "-V"])("mcp %s prints the package version and exits 0", async (flag) => {
+  const started = Date.now();
   const result = await run(["mcp", flag]);
   expect(result.timedOut).toBe(false);
   expect(result.code).toBe(0);
   expect(result.stdout).toBe(`${version}\n`);
   expect(result.stderr).toBe("");
+  expect(Date.now() - started).toBeLessThan(5000);
 });
 
 test.each([[[]], [["mcp"]]])("%j starts the MCP server on stdio", async (args: string[]) => {
