@@ -447,7 +447,7 @@ bun run dev        # or: npm run dev
 curl http://localhost:8787/health
 ```
 
-The script builds the app, then runs `wrangler dev` with the region check off (`SLIDES_REGION=unknown`). `/health` needs no token. To sign in to the UI on your machine only, pass a static token: `npm run dev -- --var SLIDES_UNSAFE_STATIC_TOKENS:1 --var 'SLIDES_TOKENS:my-long-token-0123456789-abcdefghij=human:ada'`.
+The script builds the app, then runs `wrangler dev` with the region set to `unknown` (`SLIDES_REGION=unknown`), because local D1 reports no region. Do not use this value in production. `/health` needs no token. To sign in to the UI on your machine only, pass a static token: `TOKEN=$(openssl rand -hex 24); echo "$TOKEN"; npm run dev -- --var SLIDES_UNSAFE_STATIC_TOKENS:1 --var "SLIDES_TOKENS:$TOKEN=human:ada"`.
 
 The scripts call `npm` and `node` (Node 22 or newer), so install both, even if you use bun. They need a POSIX shell.
 
