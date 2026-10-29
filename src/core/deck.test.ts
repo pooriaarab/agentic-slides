@@ -112,6 +112,15 @@ describe("editElement", () => {
     expect(codeOf(() => deck.editElement(slideId, text.id, { fontSize: 200 }, agent))).toBe("TEXT_OVERFLOW");
   });
 
+  test("a box that shrinks a table below its rows is refused, as a text box is", () => {
+    const { deck } = sample();
+    deck.addSlidesFromOutline("|a|b|\n|c|d|\n|e|f|", { author: human, images: {} });
+    const slide = deck.outline().slides.at(-1)!;
+    const table = slide.elements.find((e) => e.kind === "table")!;
+    expect(codeOf(() => deck.editElement(slide.id, table.id, { h: 50 }, human))).toBe("TEXT_OVERFLOW");
+    expect(deck.outline().slides.at(-1)!.elements.find((e) => e.id === table.id)).toMatchObject({ h: table.h });
+  });
+
   test("a valid patch moves, resizes, and rewrites rich text", () => {
     const { deck, slideId, text } = target();
     deck.editElement(slideId, text.id, { x: 100, y: 120, text: "A **bold** claim" }, agent);
