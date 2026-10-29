@@ -107,6 +107,29 @@ Images go in the `images` field as base64.
 A token can end in `;viewer` (for example `token=human:eve;viewer`). A viewer reads. Every write by a viewer gets 403.
 The default role is `editor`.
 
+## SDK
+
+`agentic-slides/client` is a typed client for the HTTP API. It uses only `fetch`. It runs in
+browsers, Workers, and Node 22.
+
+```ts
+import { createClient, SlidesApiError } from "agentic-slides/client";
+
+const slides = createClient({ baseUrl: "https://slides.example.com", token });
+await slides.createDeck({ title: "Talk", id: "talk" });
+const { slideIds } = await slides.addSlides("talk", { outline: "# Hello\n- first point" });
+const pdf = await slides.exportPdf("talk", { signal: AbortSignal.timeout(10_000) });
+```
+
+There is one method for each route: `health`, `me`, `createDeck`, `outline`, `addSlides`, `setSlide`,
+`editElement`, `moveSlide`, `deleteSlide`, `render`, `exportPdf`, `state`, and `checkpoint`. Each method
+takes `{ signal }` as its last argument. Pass `fetch` to `createClient` to replace the global one.
+
+When the API refuses a call, the method throws `SlidesApiError`. It has `status` (the HTTP status),
+`code` (the API error code, such as `NO_DECK` or `UNAUTHORIZED`), `message`, and `issues`. An abort
+and a network failure throw the error of `fetch`. The client never retries a call, so a write is sent once.
+The live room route is not in the client. Use `LiveDeck` from `agentic-slides/live`.
+
 ## Live rooms
 
 The Worker hosts one live room for each deck. A room is a Durable Object from

@@ -9,6 +9,7 @@ export default defineConfig({
     "src/worker.ts",
     "src/live-worker.ts",
     "src/live.ts",
+    "src/client.ts",
   ],
   format: ["esm"],
   dts: true,
