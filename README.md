@@ -182,6 +182,37 @@ should still check the keyboard and a screen reader.
 
 The UI sends the token to the room as a WebSocket subprotocol (`bearer.<token>`), because a browser cannot set a header on a WebSocket. Only the room route reads it.
 
+### Mount the editor in your app
+
+`agentic-slides/ui` renders the deck editor inside your own page. It needs no framework in your app. You give it
+an element, a client, a deck id, and the principal who uses the editor. `mount` returns a handle.
+
+```ts
+import { createClient } from "agentic-slides/client";
+import { mount } from "agentic-slides/ui";
+import "agentic-design/styles.css";
+import "agentic-slides/ui.css";
+
+const client = createClient({ baseUrl: "https://slides.example.com", token });
+const editor = mount(document.getElementById("slides")!, {
+  client,
+  docId: "talk",
+  principal: { kind: "human", name: "Ada", role: "editor" },
+  // readOnly: true,                    // open the deck read only, even for an editor
+  // presence: { token },               // join the live room, to show who is here
+  // onPresent: (slide) => { ... },     // handle Present yourself
+});
+
+editor.update({ client, docId: "other", principal });  // show another deck
+editor.unmount();                                      // remove the editor and stop its poll
+```
+
+The principal needs a `kind` and a `name`. A missing or unknown `kind` throws a `TypeError`. Only the role
+`editor` can change the deck. The server still checks every write against the token of the client.
+Without `presence`, the editor shows no live presence. Without `onPresent`, Present sets the page address to
+`#/deck/<id>/present/<slide>`. `react` and `react-dom` (version 19) are peer dependencies. The web UI that the
+Worker serves renders the same editor component.
+
 ## SDK
 
 `agentic-slides/client` is a typed client for the HTTP API. It uses only `fetch`. It runs in

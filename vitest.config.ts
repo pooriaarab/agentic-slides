@@ -14,7 +14,7 @@ export default defineConfig({
     },
   ],
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "ui/**/*.test.tsx"],
     environment: "node",
     // The E2E tests start the built CLI and MCP server as real processes.
     testTimeout: 60_000,

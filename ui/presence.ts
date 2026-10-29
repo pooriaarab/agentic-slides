@@ -19,11 +19,13 @@ const bearerSocket = (token: string) =>
 export type Live = "connecting" | "live" | "unavailable";
 
 /** The other people and agents in the live room of a deck. The room holds presence only: edits go through the API. */
-export function usePresence(token: string, deck: string, name: string): { peers: PresenceEntry[]; live: Live } {
+export function usePresence(token: string | undefined, deck: string, name: string, origin?: string): { peers: PresenceEntry[]; live: Live } {
   const [peers, setPeers] = useState<PresenceEntry[]>([]);
-  const [live, setLive] = useState<Live>("connecting");
+  const [live, setLive] = useState<Live>(token ? "connecting" : "unavailable");
   useEffect(() => {
-    const url = new URL(`/api/v1/slides/decks/${encodeURIComponent(deck)}/ws`, location.href);
+    // With no token, there is no room to join.
+    if (!token) return setLive("unavailable");
+    const url = new URL(`/api/v1/slides/decks/${encodeURIComponent(deck)}/ws`, origin ?? location.href);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     setLive("connecting");
     const client = SyncClient.open({
@@ -38,6 +40,6 @@ export function usePresence(token: string, deck: string, name: string): { peers:
       off();
       void client.disconnect();
     };
-  }, [token, deck, name]);
+  }, [token, deck, name, origin]);
   return { peers, live };
 }

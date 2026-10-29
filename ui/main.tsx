@@ -4,7 +4,7 @@ import "agentic-design/styles.css";
 import { AppShell, Button, EmptyState, Input, Select, SidebarNav, ThemeProvider, ToastProvider, TooltipProvider, useTheme, type ThemePreference } from "agentic-design/react";
 import "./app.css";
 import { DeckList } from "./decks.js";
-import { Editor } from "./editor.js";
+import { SlidesEditor } from "./embed.js";
 import { Present } from "./present.js";
 import { hrefOf, useRoute } from "./route.js";
 import { clearToken, clientFor, messageOf, saveToken, savedToken, type Me } from "./session.js";
@@ -69,7 +69,7 @@ function Signed({ token, onSignOut }: { token: string; onSignOut: () => void }) 
       sidebar={<SidebarNav label="Main" items={[{ href: hrefOf({ name: "decks" }), label: "Decks", current: route.name === "decks" }]} />}
       topbar={<><ThemePicker /><span className="muted">{me.name} ({me.role})</span><Button variant="secondary" size="sm" onClick={onSignOut}>Sign out</Button></>}
     >
-      {route.name === "deck" ? <Editor key={route.id} client={client} id={route.id} token={token} canWrite={canWrite} name={me.name} /> : <DeckList client={client} canWrite={canWrite} />}
+      {route.name === "deck" ? <SlidesEditor key={route.id} client={client} docId={route.id} principal={{ kind: me.kind, name: me.name, role: me.role }} presence={{ token }} /> : <DeckList client={client} canWrite={canWrite} />}
     </AppShell>
   );
 }

@@ -4,6 +4,10 @@ This file lists the notable changes to this project, by version.
 
 ## Unreleased
 
+### Added
+
+- `agentic-slides/ui` exports `mount`, which renders the deck editor into an element. `agentic-slides/ui.css` holds its styles.
+
 ## 0.5.0 - 2026-10-29
 
 ### Breaking changes
