@@ -7,6 +7,8 @@ export default defineConfig({
     "src/mcp.ts",
     "src/mcp-bin.ts",
     "src/worker.ts",
+    "src/live-worker.ts",
+    "src/live.ts",
   ],
   format: ["esm"],
   dts: true,

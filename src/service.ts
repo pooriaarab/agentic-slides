@@ -2,9 +2,9 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { fromBase64, toBase64 } from "./bytes.js";
 import { Deck, type DeckOutline, type ElementPatch } from "./core/deck.js";
-import { isLayout, LAYOUT_NAMES, type LayoutName } from "./core/layouts.js";
+import { checkTheme, isLayout, LAYOUT_NAMES, type LayoutName } from "./core/layouts.js";
 import { checkImageSrc, isBlobRef } from "./core/model.js";
-import { fail, type Principal } from "./core/principal.js";
+import { SlidesError, fail, type Principal } from "./core/principal.js";
 import { DEFAULT_LIMITS, checkDeckSize, tooManyPixels, type Limits } from "./export/limits.js";
 import { renderPdf } from "./export/pdf.js";
 import { StoreConflictError, type Blobs, type Store, type StoreOps } from "agentic-identity";
@@ -22,6 +22,20 @@ function sniff(data: Uint8Array): string {
   if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) return "image/png";
   if (data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return "image/jpeg";
   return fail("UNSUPPORTED_IMAGE", "images must be PNG or JPEG files");
+}
+
+/** The most bytes of deck state that a live room takes or a checkpoint saves. The room itself stops at 1.5 MiB. */
+export const MAX_LIVE_BYTES = 1_572_864;
+
+/** Check a deck that came from a client: the theme, the layouts, the size, and the images. A deck that fails is never saved. */
+function verify(deck: Deck, limits: Limits): void {
+  const outline = deck.outline();
+  checkTheme(outline.theme);
+  checkDeckSize(outline, limits);
+  for (const slide of outline.slides) {
+    if (!isLayout(slide.layout)) fail("UNKNOWN_LAYOUT", `unknown layout "${String(slide.layout).slice(0, 40)}"`, slide.index);
+    for (const element of slide.elements) if (element.kind === "image") checkImageSrc(element.src);
+  }
 }
 
 export interface Ports {
@@ -125,6 +139,28 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
 
     async outline(id: string): Promise<DeckOutline> {
       return (await load(id)).outline();
+    },
+
+    /** The stored deck as a Yjs update. A live room starts from it. */
+    async state(id: string): Promise<Uint8Array> {
+      return (await load(id)).encode();
+    },
+
+    /**
+     * Merge the state of a live room into the stored deck. The update is checked on a copy first, so a
+     * bad one writes nothing. A deck that does not exist is never made here.
+     */
+    async checkpoint(id: string, update: Uint8Array): Promise<void> {
+      if (update.length === 0 || update.length > MAX_LIVE_BYTES) fail(update.length === 0 ? "INVALID_UPDATE" : "TOO_LARGE", `a checkpoint is from 1 to ${MAX_LIVE_BYTES} bytes`);
+      await mutate(id, (deck) => {
+        try {
+          deck.applyUpdate(update);
+          verify(deck, limits);
+        } catch (error) {
+          if (error instanceof SlidesError) throw error;
+          return fail("INVALID_UPDATE", "the update is not a deck state");
+        }
+      });
     },
 
     /** Add slides from an outline, or one empty slide of a layout. */

@@ -84,6 +84,26 @@ curl -s -X POST localhost:8787/api/v1/slides/decks \
 `:slide` is a slide id, or a 1-based position when all digits. With no token set, every call gets 401.
 Images go in the `images` field as base64.
 
+A token can end in `;viewer` (for example `token=human:eve;viewer`). A viewer reads. Every write by a viewer gets 403.
+The default role is `editor`.
+
+## Live rooms
+
+The Worker hosts one live room for each deck. A room is a Durable Object from
+[agentic-realtime](https://www.npmjs.com/package/agentic-realtime). A person and
+an agent edit the same deck at the same time, and both see the other's changes.
+
+| Route | Does |
+| --- | --- |
+| `GET /decks/:deck/ws` | Join the room over a WebSocket (Yjs protocol). The deck must exist. |
+| `GET /me` | The kind, name, and role of the token. |
+| `GET /decks/:deck/state` | The stored deck as a Yjs update. A client seeds an empty room with it. |
+| `POST /decks/:deck/checkpoint` | Merge the room state into the stored deck. It checks the update first. |
+
+The token sets the author kind and the role. A client cannot change either. A viewer joins and
+reads, and the room drops its edits. The room keeps its state in the Durable Object, so a restart
+keeps it. A checkpoint saves the state to the store, so the HTTP API and the CLI see it.
+
 ## Features
 
 - Slides on a fixed 1280 by 720 space (16:9), kept in a Yjs document.
@@ -133,8 +153,10 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
   The font ships in the package and is embedded as a subset, so a PDF stays small and the
   bytes are the same on every run. Han, Arabic, Indic, and other scripts become `?` and are
   listed in `warnings`. The PDF has no tags yet.
-- The Worker keeps decks in D1 and images in R2. Create both in the EU (see `wrangler.jsonc`). It declares the `eu` region and refuses a D1 query that D1 does not report as served in the EU. `SLIDES_REGION:unknown` turns that check off, for local runs only. Any valid token can read and edit every deck: there is no owner and no role yet, so do not use it for more than one tenant.
+- The Worker keeps decks in D1 and images in R2. Create both in the EU (see `wrangler.jsonc`). It declares the `eu` region and refuses a D1 query that D1 does not report as served in the EU. `SLIDES_REGION:unknown` turns that check off, for local runs only. Any valid token can read every deck, and an editor token can change every deck: there is no owner and no per-deck role yet, so do not use it for more than one tenant.
 - A token has 32 or more characters. A request holds at most 20 images, 10 MB each, and 32 MB in all.
+- A live room and the HTTP API are two copies of a deck. An HTTP edit reaches a room on the next join, not at once. Save a room with a checkpoint.
+- A checkpoint holds at most 1.5 MiB. A deck over that cannot go in a room.
 - Elements cannot be added or deleted one by one yet.
 
 ## Develop

@@ -1,5 +1,5 @@
 {
-  // Worker for the /api/v1/slides HTTP API. Decks live in D1 and images in R2, so they survive restarts
+  // Worker for the /api/v1/slides HTTP API and the live rooms. Decks live in D1 and images in R2, so they survive restarts
   // and every Worker instance sees the same data.
   // Create the database in the EU, then put its id below:
   //   wrangler d1 create agentic-slides --location weur
@@ -8,10 +8,13 @@
   // Local `wrangler dev` keeps its own copy of both and ignores the id.
   // Set the tokens as a secret: `npx wrangler secret put SLIDES_TOKENS`. A token has 32 or more characters.
   "name": "agentic-slides",
-  "main": "src/worker.ts",
+  "main": "src/live-worker.ts",
   "compatibility_date": "2026-01-01",
   // The root of agentic-identity imports node:module for its version string.
   "compatibility_flags": ["nodejs_compat"],
+  // The live rooms. One Durable Object holds one deck. It keeps the room state across restarts.
+  "durable_objects": { "bindings": [{ "name": "SYNC_ROOM", "class_name": "SyncRoom" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SyncRoom"] }],
   "d1_databases": [{ "binding": "DB", "database_name": "agentic-slides", "database_id": "00000000-0000-0000-0000-000000000000" }],
   "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "agentic-slides-images", "jurisdiction": "eu" }],
   "rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }]
