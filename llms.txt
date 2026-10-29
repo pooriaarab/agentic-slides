@@ -5,12 +5,12 @@ Build and present slide decks with people and agents.
 Status: early. Deck library, render, CLI, MCP server, PDF export, HTTP API, live rooms, and web UI.
 
 - SDK: import { Deck } from "agentic-slides".
-- Remote SDK: createClient({ baseUrl, token }) from "agentic-slides/client". One method per HTTP route. It throws SlidesApiError with status and code. It never retries.
+- Remote SDK: createClient({ baseUrl, token }) from "agentic-slides/client". The client has these methods: health, me, listDecks, createDeck, deleteDeck, outline, addSlides, setSlide, editElement, moveSlide, deleteSlide, render, exportPdf, state, checkpoint, and the sharing methods access, grant, revoke, invite, acceptInvite, createShareLink, revokeShareLink, and readShared. It throws SlidesApiError with status and code. It never retries.
 - UI component: mount(element, { client, docId, principal, readOnly }) from "agentic-slides/ui", with "agentic-slides/ui.css". It returns { update, unmount }. React 19 is a peer dependency.
 - CLI: agentic-slides new "Talk" --as human:ada, then add, outline, edit, render, export.
 - MCP: run agentic-slides mcp.
 - Live: LiveDeck from "agentic-slides/live", CLI --live, or SLIDES_LIVE_URL and SLIDES_LIVE_TOKEN for the MCP server.
-- HTTP: a Worker under /api/v1/slides with bearer tokens, and a live room for each deck.
+- HTTP: a Worker under /api/v1/slides with bearer tokens, and a live room for each deck. A deck made through the Worker has an owner, who shares it with roles (owner, editor, commenter, viewer) or share links. Sharing also works in the Remote SDK (agentic-slides/client), and in the CLI and the MCP server with a live setting. See README, Share a deck.
 - UI: the Worker serves a web UI at / from dist/ui (deck list, editor, present mode). In this repo, run npm run build first. In your own Worker, set main to ./node_modules/agentic-slides/dist/live-worker.js and assets.directory to ./node_modules/agentic-slides/dist/ui. See README, UI.
 
 ## Docs
