@@ -136,6 +136,7 @@ close it. An agent that uses the other token appears in presence, and its edits 
 To serve the UI from the npm package in your own Worker, copy `wrangler.jsonc` from this repo. Change `main` to
 `./node_modules/agentic-slides/dist/live-worker.js`, and change `assets.directory` to `./node_modules/agentic-slides/dist/ui`.
 Keep the `DB`, `IMAGES`, and `SYNC_ROOM` bindings. The package ships `dist/ui`, so you do not need the source.
+The setup comments in `wrangler.jsonc` say how to create the D1 database and the R2 bucket, and how to set `SLIDES_TOKENS` as a secret.
 
 Test the UI in a browser. The tests start their own Workers, so run `npm run build` first. They need
 Chromium once (`npx playwright install chromium`):
