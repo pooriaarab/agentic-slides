@@ -67,6 +67,7 @@ test("--version --help without the mcp word prints the version, as before", asyn
   expect(result.timedOut).toBe(false);
   expect(result.code).toBe(0);
   expect(result.stdout).toBe(`${version}\n`);
+  expect(result.stderr).toBe("");
 });
 
 test("mcp --version --help prints usage, because help is checked first, as in the CLI", async () => {
