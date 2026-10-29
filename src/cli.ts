@@ -188,6 +188,15 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
     console.log(VERSION);
     return 0;
   }
+  // `mcp --help` and `mcp --version` answer before the server starts.
+  if (command === "mcp" && (rest[0] === "--help" || rest[0] === "-h")) {
+    console.log(HELP);
+    return 0;
+  }
+  if (command === "mcp" && (rest[0] === "--version" || rest[0] === "-V")) {
+    console.log(VERSION);
+    return 0;
+  }
   try {
     const { values, positionals } = parseArgs({ args: rest, options: OPTIONS, allowPositionals: true });
     const dir = values.dir ?? env.SLIDES_DIR ?? ".slides";

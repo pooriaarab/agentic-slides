@@ -261,3 +261,17 @@ describe("slides CLI", () => {
     expect(exported.warnings.join(" ")).toMatch(/slide 1.*cut/);
   });
 });
+
+describe("mcp flags", () => {
+  test("mcp --help and mcp --version answer and exit 0 without a server", () => {
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as { version: string };
+    for (const flag of ["--help", "-h"]) {
+      const help = spawnSync("node", [CLI, "mcp", flag], { cwd: work, encoding: "utf8", input: "", timeout: 10_000 });
+      expect([help.status, help.stdout]).toEqual([0, expect.stringContaining("Usage")]);
+    }
+    for (const flag of ["--version", "-V"]) {
+      const version = spawnSync("node", [CLI, "mcp", flag], { cwd: work, encoding: "utf8", input: "", timeout: 10_000 });
+      expect([version.status, version.stdout.trim()]).toEqual([0, pkg.version]);
+    }
+  });
+});
