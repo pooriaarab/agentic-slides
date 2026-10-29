@@ -1,5 +1,7 @@
-export const PRINCIPAL_KINDS = ["human", "agent_of_human", "agent_of_agent", "agent", "user_token"] as const;
-export type PrincipalKind = (typeof PRINCIPAL_KINDS)[number];
+import { PRINCIPAL_KINDS, PrincipalParseError, isMachineMade, parsePrincipal as parseReference, type PrincipalKind } from "agentic-identity";
+
+export { PRINCIPAL_KINDS, isMachineMade };
+export type { PrincipalKind };
 
 /** Who made a change. Every edit needs one, so machine-made work stays labeled. */
 export interface Principal {
@@ -54,9 +56,6 @@ export const fail = (code: SlidesErrorCode, message: string, slide?: number): ne
   throw new SlidesError([{ code, message, ...(slide === undefined ? {} : { slide }) }]);
 };
 
-/** Content by an agent principal, or by a user token (tagged "via agent"), is machine-made. */
-export const isMachineMade = (kind: PrincipalKind): boolean => kind !== "human";
-
 const isPrincipal = (value: unknown): value is Principal => {
   const author = value as Principal | null | undefined;
   return (
@@ -77,8 +76,14 @@ export function checkAuthor(author: Principal): Principal {
 export const readPrincipal = (value: unknown): Principal =>
   isPrincipal(value) ? { kind: value.kind, name: value.name } : { kind: "agent", name: "unknown" };
 
-/** Read `<kind>:<name>`. The result still needs `checkAuthor`, which every edit runs. */
+/** Read `<kind>:<name>`. The kind and the name are checked by `agentic-identity`. */
 export function parsePrincipal(value: string): Principal {
   const cut = value.indexOf(":");
-  return { kind: value.slice(0, cut < 0 ? undefined : cut) as PrincipalKind, name: cut < 0 ? "" : value.slice(cut + 1) };
+  try {
+    const { kind, id } = parseReference({ kind: value.slice(0, cut < 0 ? undefined : cut), id: cut < 0 ? "" : value.slice(cut + 1) });
+    return { kind, name: id };
+  } catch (error) {
+    if (error instanceof PrincipalParseError) fail("INVALID_AUTHOR", `author needs a kind (${PRINCIPAL_KINDS.join(", ")}) and a name`);
+    throw error;
+  }
 }

@@ -25,14 +25,14 @@ function same(a: Uint8Array, b: Uint8Array): boolean {
   return difference === 0;
 }
 
-/** Read `token=kind:name,token=kind:name;viewer`. Each token needs 32 or more characters. The role is `editor` (the default) or `viewer`. */
+/** Read `token=kind:name,token=kind:name;viewer`. Each token needs 32 to 512 characters from A-Z a-z 0-9 _ -. The role is `editor` (the default) or `viewer`. */
 export function parseTokens(config: string | undefined): [Uint8Array, Caller][] {
   const entries: [Uint8Array, Caller][] = [];
   const seen = new Set<string>();
   for (const part of (config ?? "").split(",").filter((p) => p.trim() !== "")) {
     const cut = part.indexOf("=");
     const token = part.slice(0, cut).trim();
-    if (cut < 0 || !/^[A-Za-z0-9._~+-]{32,}$/.test(token)) throw new ConfigError("a token needs 32 or more of A-Z a-z 0-9 . _ ~ + -");
+    if (cut < 0 || !/^[A-Za-z0-9_-]{32,512}$/.test(token)) throw new ConfigError("a token needs 32 to 512 of A-Z a-z 0-9 _ -");
     if (seen.has(token)) throw new ConfigError("two entries share a token");
     seen.add(token);
     try {

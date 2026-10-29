@@ -9,10 +9,13 @@ export const entryOf = (peer: Peer): PresenceEntry => ({ id: `peer-${peer.client
  * A browser cannot set a header on a WebSocket. It sends the token as a subprotocol,
  * and the server reads it from there on the room route only.
  */
+const base64url = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
 const bearerSocket = (token: string) =>
   class extends WebSocket {
     constructor(url: string) {
-      super(url, [`bearer.${token}`]);
+      // The server answers with the bare name. The second entry holds the token as base64url of its UTF-8 bytes.
+      super(url, ["agentic-slides", `agentic-slides.bearer.${base64url(token)}`]);
     }
   };
 
