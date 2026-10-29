@@ -8,6 +8,7 @@ import { COMMAND, DESCRIPTION } from "./brand.js";
 import { imagePaths } from "./core/outline.js";
 import { PRINCIPAL_KINDS, SlidesError, fail, parsePrincipal, type Principal } from "./core/principal.js";
 import { DEFAULT_LIMITS } from "./export/limits.js";
+import { createLiveService, type LiveOptions } from "./live.js";
 import { createService } from "./service.js";
 import { createFileBlobs, createFileStore } from "./store/file.js";
 import { VERSION } from "./version.js";
@@ -16,6 +17,7 @@ class UsageError extends Error {}
 
 const OPTIONS = {
   dir: { type: "string" },
+  live: { type: "string" },
   as: { type: "string" },
   id: { type: "string" },
   outline: { type: "string" },
@@ -51,8 +53,20 @@ Commands:
 
 Flags:
   --dir <path>   The deck store. Default: $SLIDES_DIR or .slides
+  --live <url>   Join a live room on a server instead of using files. Or set $SLIDES_LIVE_URL.
+                 The token is $SLIDES_LIVE_TOKEN. The token sets who edits, so --as and --dir are refused.
   --as <kind:name>  Who edits: ${PRINCIPAL_KINDS.join(", ")}. Or set $SLIDES_AUTHOR.
                  Pass the real kind. Edits by an agent are labeled as machine-made.`;
+
+/** The live room options, or undefined when no server is named. A server that is named but unusable is an error: never fall back to files. */
+function liveOptions(server: string | undefined, env: NodeJS.ProcessEnv, values: { dir?: string; as?: string }): LiveOptions | undefined {
+  if (server === undefined) return undefined;
+  if (!/^https?:\/\/[^/\s]+/.test(server)) throw new UsageError("--live needs an address that starts with http:// or https://");
+  if (values.dir !== undefined || values.as !== undefined) throw new UsageError("--dir and --as do not work with --live: the token sets who edits");
+  const token = env.SLIDES_LIVE_TOKEN;
+  if (!token) throw new UsageError("a live room needs a token in $SLIDES_LIVE_TOKEN");
+  return { server, token, name: env.SLIDES_LIVE_NAME };
+}
 
 export function parseAuthor(value: string | undefined): Principal {
   if (!value) throw new UsageError(`say who edits: --as <kind:name> or SLIDES_AUTHOR. Kinds: ${PRINCIPAL_KINDS.join(", ")}`);
@@ -96,7 +110,9 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
   try {
     const { values, positionals } = parseArgs({ args: rest, options: OPTIONS, allowPositionals: true });
     const dir = values.dir ?? env.SLIDES_DIR ?? ".slides";
-    const author = () => parseAuthor(values.as ?? env.SLIDES_AUTHOR);
+    const live = liveOptions(values.live ?? env.SLIDES_LIVE_URL, env, values);
+    // In a live room the server reads the author from the token, so this one is never used.
+    const author = () => (live ? { kind: "agent" as const, name: "live" } : parseAuthor(values.as ?? env.SLIDES_AUTHOR));
     const [deck = ""] = positionals;
     const need = <T>(value: T | undefined, flag: string): T => value ?? (() => { throw new UsageError(`${command} needs --${flag}`); })();
     const number = (value: string | undefined, flag: string): number | undefined => {
@@ -107,10 +123,10 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
     if (command === "mcp") {
       const { startMcp } = await import("./mcp.js");
       const named = values.as ?? env.SLIDES_AUTHOR;
-      await startMcp({ dir, author: named ? parsePrincipal(named) : undefined });
+      await startMcp({ dir, author: named ? parsePrincipal(named) : undefined, live });
       return 0;
     }
-    const service = createService({ store: createFileStore(dir), blobs: createFileBlobs(join(dir, "blobs")) });
+    const service = live ? createLiveService(live) : createService({ store: createFileStore(dir), blobs: createFileBlobs(join(dir, "blobs")) });
     const print = (value: unknown) => console.log(JSON.stringify(value));
     switch (command) {
       case "new":

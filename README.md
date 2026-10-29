@@ -48,12 +48,32 @@ npx agentic-slides export plan --out deck.pdf
 Decks live in `.slides/` (or `--dir`, or `$SLIDES_DIR`). Also: `move`, `delete`, and `edit --outline`.
 Run `npx agentic-slides --help` for all flags.
 
+### Join a live room
+
+With `--live <url>` (or `SLIDES_LIVE_URL`) the CLI joins the live room of a deck on a server, in place of files.
+Put the token in `SLIDES_LIVE_TOKEN`, never in a flag. The token sets who edits, so `--as` and `--dir` are refused.
+Each command joins the room, makes one change, saves it to the stored deck, and leaves.
+
+```sh
+export SLIDES_LIVE_URL=https://slides.example.com
+export SLIDES_LIVE_TOKEN=...      # an editor token
+npx agentic-slides new "Launch plan" --id plan
+npx agentic-slides add plan --outline outline.md   # a person's token or an agent's: the label follows the token
+```
+
+A server that is named but cannot be used is an error. The CLI never falls back to files.
+Images are not available in a live room yet: use the HTTP API to add them.
+
 ## MCP server
 
 Run `npx agentic-slides mcp`. The tools are `create_deck`, `read_outline`, `add_slides`,
 `set_slide`, `edit_element`, `move_slide`, `delete_slide`, `render_deck`, and `export_pdf`.
 The server sets the author of every edit: `agent`, or the `SLIDES_AUTHOR` value. A model cannot
 claim to be a human, and the server refuses to start with a `human` author. A failed call returns an error result with the issue list.
+
+To join live rooms, set `SLIDES_LIVE_URL` and `SLIDES_LIVE_TOKEN` in the server environment. The server asks the
+Worker who the token is, uses that author, and refuses a person's token. Each tool call joins the room, makes
+its change, saves it, and leaves. A tool call never carries a credential.
 
 ## HTTP API
 
@@ -109,6 +129,18 @@ known fields, image sources that are blob keys). Each new or changed item must c
 person or agent that the room saw send an update. Otherwise the server answers 403 and saves nothing. Inside one room, a
 writer can still label a change as another writer of that room.
 
+### Join a live room from code
+
+```ts
+import { LiveDeck } from "agentic-slides/live";
+
+const live = await LiveDeck.join("plan", { server: "https://slides.example.com", token });
+await live.edit((deck, author) => deck.addSlide({ layout: "section" }, author)); // waits for the room
+console.log(live.peers); // the other people and agents; `machine` is true for an agent
+await live.save(); // the server checks the room state, then stores it
+await live.leave();
+```
+
 ## Features
 
 - Slides on a fixed 1280 by 720 space (16:9), kept in a Yjs document.
@@ -160,7 +192,7 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
   listed in `warnings`. The PDF has no tags yet.
 - The Worker keeps decks in D1 and images in R2. Create both in the EU (see `wrangler.jsonc`). It declares the `eu` region and refuses a D1 query that D1 does not report as served in the EU. `SLIDES_REGION:unknown` turns that check off, for local runs only. Any valid token can read every deck, and an editor token can change every deck: there is no owner and no per-deck role yet, so do not use it for more than one tenant.
 - A token has 32 or more characters. A request holds at most 20 images, 10 MB each, and 32 MB in all.
-- A live room and the HTTP API are two copies of a deck. An HTTP edit reaches a room on the next join, not at once. Save a room with a checkpoint.
+- A live room and the HTTP API are two copies of a deck. A CLI or MCP call in a live room saves after each change, so the HTTP API sees it at once. An HTTP edit reaches a room on the next join, not at once. Save a room with a checkpoint.
 - A checkpoint holds at most 1.5 MiB. A deck over that cannot go in a room.
 - Elements cannot be added or deleted one by one yet.
 

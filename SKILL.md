@@ -20,6 +20,12 @@ agentic-slides export talk --out talk.pdf
 Start it with `agentic-slides mcp`. Call `read_outline` first. Then call `add_slides`,
 `set_slide`, `edit_element`, `move_slide`, or `delete_slide`. End with `export_pdf` or `render_deck`.
 
+## Work in a live room
+
+To edit a deck at the same time as a person, set `SLIDES_LIVE_URL` and `SLIDES_LIVE_TOKEN`
+for the MCP server, or pass `--live <url>` to the CLI. Use the same commands. The token sets
+your author kind. A viewer token cannot change the deck. A live room takes no image files yet.
+
 ## Use the HTTP API
 
 Send `Authorization: Bearer <token>` to `/api/v1/slides`. See the README for the routes.

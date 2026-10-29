@@ -31,7 +31,8 @@ export type SlidesErrorCode =
   | "TOO_LARGE"
   | "STORE_BUSY"
   | "FORBIDDEN"
-  | "INVALID_UPDATE";
+  | "INVALID_UPDATE"
+  | "LIVE_UNAVAILABLE";
 
 export interface Issue {
   code: SlidesErrorCode;
