@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { AGENT, VIEWER } from "../playwright.config.js";
-import { agentDeck, api, checkView, signIn } from "./helpers.js";
+import { agentDeck, api, checkView, ok, signIn } from "./helpers.js";
 
 const SCHEMES = ["light", "dark"] as const;
 
@@ -18,7 +18,7 @@ test("every view passes axe WCAG 2.2 AA in light and dark, and a screenshot is k
   for (const scheme of SCHEMES) await checkView(page, "decks-empty", scheme);
 
   const id = await agentDeck(baseURL, "Launch plan");
-  await api(baseURL, "/decks", AGENT, { method: "POST", body: JSON.stringify({ title: "Empty deck", id: "empty" }) });
+  await ok(api(baseURL, "/decks", AGENT, { method: "POST", body: JSON.stringify({ title: "Empty deck", id: "empty" }) }));
   await page.reload();
   await expect(page.getByRole("link", { name: "Launch plan" })).toBeVisible();
   for (const scheme of SCHEMES) await checkView(page, "decks", scheme);

@@ -118,7 +118,7 @@ export function SlideView({ slide, theme, selected, onSelect, onNudge, label }: 
             role="button"
             tabIndex={0}
             aria-pressed={selected === el.id}
-            aria-label={`${describe(el, i)}${el.machineMade ? ", edited by an agent" : ""}`}
+            aria-label={`${describe(el, i)}${el.machineMade ? ", Agent edit" : ""}`}
             onClick={() => onSelect(el.id)}
             onKeyDown={key(el)}
             onPointerDown={drag(el)}

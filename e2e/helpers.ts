@@ -6,6 +6,13 @@ import { AGENT, HUMAN } from "../playwright.config.js";
 export const api = (base: string | undefined, path: string, token: string, init: RequestInit = {}) =>
   fetch(`${base}/api/v1/slides${path}`, { ...init, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...init.headers } });
 
+/** Fails with the status and the body, so a setup call that breaks shows its own cause. */
+export async function ok(call: Promise<Response>): Promise<Response> {
+  const response = await call;
+  if (!response.ok) throw new Error(`setup call failed: ${response.status} ${await response.text()}`);
+  return response;
+}
+
 export async function signIn(page: Page, token = HUMAN) {
   await page.goto("/");
   await page.getByLabel("Access token").fill(token);
@@ -22,9 +29,9 @@ export async function createDeck(page: Page, title: string): Promise<string> {
 
 /** A deck that an agent made, with two slides, so the page shows an agent mark. */
 export async function agentDeck(base: string | undefined, title: string): Promise<string> {
-  const made = (await (await api(base, "/decks", AGENT, { method: "POST", body: JSON.stringify({ title }) })).json()) as { id: string };
+  const made = (await (await ok(api(base, "/decks", AGENT, { method: "POST", body: JSON.stringify({ title }) }))).json()) as { id: string };
   const outline = "# Welcome\n- First point\n- Second point\n> Say hello\n---\nlayout: title\n# Thank you\n";
-  await api(base, `/decks/${made.id}/slides`, AGENT, { method: "POST", body: JSON.stringify({ outline }) });
+  await ok(api(base, `/decks/${made.id}/slides`, AGENT, { method: "POST", body: JSON.stringify({ outline }) }));
   return made.id;
 }
 

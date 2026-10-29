@@ -47,7 +47,7 @@ test("the keyboard moves an element, and the move is saved", async ({ page }) =>
   await page.keyboard.press("Enter");
   await expect(page.getByLabel("X", { exact: true })).toHaveValue("80");
   // The save waits until the keys stop, then one PATCH carries the last place.
-  const saved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.url().includes("/elements/") && r.ok());
+  const saved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.url().includes("/elements/") && r.request().postDataJSON()?.y === 61 && r.ok());
   for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Shift+ArrowDown");
   await expect(page.getByLabel("X", { exact: true })).toHaveValue("110");
@@ -81,7 +81,7 @@ test("presence shows an agent in the room, and an agent edit has a mark", async 
   await expect(page.getByRole("heading", { name: "Agent deck" })).toBeVisible();
   await expect(page.getByText("Live", { exact: true })).toBeVisible();
   await expect(page.getByText("Agent edit").first()).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Text box 1.*edited by an agent/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Text box 1.*, Agent edit$/ })).toBeVisible();
   // The canvas tag is drawn by CSS, so read its text from the style. A bad escape there once made it "gent edit".
   const tag = await page.locator(".slide-el.is-agent").first().evaluate((el) => getComputedStyle(el, "::after").content);
   expect(tag).toBe('"\u2699\u00a0Agent edit"');

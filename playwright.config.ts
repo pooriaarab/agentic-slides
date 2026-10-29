@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineConfig } from "@playwright/test";
@@ -6,9 +6,13 @@ import { defineConfig } from "@playwright/test";
 // The tests run against the real Worker under `wrangler dev`. Run `npm run build` first: the Worker serves dist/ui.
 // The flows and the views each get their own Worker and their own state, so the empty deck list is really empty.
 const PORT = Number(process.env.E2E_PORT ?? 18911);
-// The runner makes the state folder once. Its workers read the same name from the environment. The teardown removes it.
-process.env.E2E_STATE ??= mkdtempSync(join(tmpdir(), "slides-ui-"));
-const state = process.env.E2E_STATE;
+// The runner makes the state folder once. Its workers read the same name from the environment, so they make none.
+// Only the runner removes the folder, when it exits, after it has stopped both Workers. A folder that a person names is never removed.
+const state = process.env.E2E_STATE ?? mkdtempSync(join(tmpdir(), "slides-ui-"));
+if (!process.env.E2E_STATE) {
+  process.env.E2E_STATE = state;
+  process.on("exit", () => rmSync(state, { recursive: true, force: true, maxRetries: 3 }));
+}
 export const HUMAN = "human-token-0123456789-abcdefghij";
 export const AGENT = "agent-token-0123456789-abcdefghij";
 export const VIEWER = "viewer-token-0123456789-abcdefghij";
@@ -26,7 +30,6 @@ export default defineConfig({
   testDir: "e2e",
   timeout: 90_000,
   workers: 1,
-  globalTeardown: "./e2e/teardown.ts",
   reporter: [["list"]],
   use: { viewport: { width: 1280, height: 800 }, screenshot: "off", trace: "off" },
   projects: [
