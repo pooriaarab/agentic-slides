@@ -10,11 +10,6 @@ Build and present slide decks with people and agents.
 > Status: early. The deck library, the HTML render, the CLI, the MCP server, PDF
 > export, and the HTTP API work. ODP and PPTX export are not ready yet. The package
 > is not on npm yet.
->
-> **The Worker is a demo, not a service.** It keeps decks in memory, per isolate. A second
-> request can reach an isolate that does not hold your deck. It refuses to start unless you
-> set `SLIDES_UNSAFE_MEMORY_STORE=1`. Any valid token can read and edit every deck: there is
-> no owner and no role yet, so do not use it for more than one tenant.
 
 ## Install
 
@@ -66,7 +61,7 @@ A Cloudflare Worker (Hono) serves `/api/v1/slides`. It mirrors the CLI. Set toke
 Each token names who edits, so a client cannot claim a different kind:
 
 ```sh
-npx wrangler dev --var SLIDES_UNSAFE_MEMORY_STORE:1 \
+npx wrangler dev --var SLIDES_REGION:unknown \
   --var 'SLIDES_TOKENS:my-long-token-0123456789-abcdefghij=agent_of_human:bot'
 
 curl -s -X POST localhost:8787/api/v1/slides/decks \
@@ -138,7 +133,7 @@ Slides split at a line of `---`. A slide can hold `layout: <name>` as its first 
   The font ships in the package and is embedded as a subset, so a PDF stays small and the
   bytes are the same on every run. Han, Arabic, Indic, and other scripts become `?` and are
   listed in `warnings`. The PDF has no tags yet.
-- The Worker keeps decks in memory, per isolate. Durable adapters go behind the same `Store` and `Blobs` shapes.
+- The Worker keeps decks in D1 and images in R2. Create both in the EU (see `wrangler.jsonc`). It declares the `eu` region and refuses a D1 query that D1 does not report as served in the EU. `SLIDES_REGION:unknown` turns that check off, for local runs only. Any valid token can read and edit every deck: there is no owner and no role yet, so do not use it for more than one tenant.
 - A token has 32 or more characters. A request holds at most 20 images, 10 MB each, and 32 MB in all.
 - Elements cannot be added or deleted one by one yet.
 

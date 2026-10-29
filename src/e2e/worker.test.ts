@@ -10,9 +10,10 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 const HUMAN = "human-token-0123456789-abcdefghij";
 const AGENT = "agent-token-0123456789-abcdefghij";
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
-let server: ChildProcess;
+let workers: { server: ChildProcess; base: string }[] = [];
 let base = "";
-let log = "";
+const home = mkdtempSync(join(tmpdir(), "slides-wrangler-"));
+const persist = join(home, "state");
 
 const freePort = () =>
   new Promise<number>((resolve) => {
@@ -31,26 +32,44 @@ async function call(method: string, path: string, options: { token?: string; bod
 }
 const json = async (response: Response) => (await response.json()) as Record<string, any>;
 
-beforeAll(async () => {
+// Workers that share `persist` share one local D1 database and R2 bucket, as two instances share the real ones.
+async function start(): Promise<string> {
   const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  const home = mkdtempSync(join(tmpdir(), "slides-wrangler-"));
-  server = spawn(
+  const url = `http://127.0.0.1:${port}`;
+  let log = "";
+  const server = spawn(
     "npx",
-    ["wrangler", "dev", "--port", String(port), "--ip", "127.0.0.1", "--var", `SLIDES_TOKENS:${HUMAN}=human:ada,${AGENT}=agent_of_human:bot`, "--var", "SLIDES_UNSAFE_MEMORY_STORE:1"],
-    { env: { ...process.env, WRANGLER_SEND_METRICS: "false", HOME: home, XDG_CONFIG_HOME: home, CI: "1" } },
+    ["wrangler", "dev", "--port", String(port), "--ip", "127.0.0.1", "--inspector-port", String(port + 100), "--persist-to", persist, "--var", "SLIDES_REGION:unknown", "--var", `SLIDES_TOKENS:${HUMAN}=human:ada,${AGENT}=agent_of_human:bot`],
+    { env: { ...process.env, WRANGLER_SEND_METRICS: "false", HOME: home, XDG_CONFIG_HOME: home, CI: "1" }, detached: true },
   );
+  workers.push({ server, base: url });
   server.stdout?.on("data", (chunk: Buffer) => (log += chunk));
   server.stderr?.on("data", (chunk: Buffer) => (log += chunk));
   for (let i = 0; i < 180; i++) {
-    if (await fetch(`${base}/health`).then((r) => r.ok, () => false)) return;
+    if (await fetch(`${url}/health`).then((r) => r.ok, () => false)) return url;
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(`wrangler dev did not start:\n${log.slice(-2000)}`);
+}
+
+const stop = (worker: { server: ChildProcess }) =>
+  new Promise<void>((resolve) => {
+    worker.server.once("exit", () => resolve());
+    // npx starts wrangler, which starts workerd. A signal to the group stops all three.
+    try {
+      process.kill(-worker.server.pid!, "SIGTERM");
+    } catch {
+      resolve();
+    }
+    setTimeout(resolve, 10_000);
+  });
+
+beforeAll(async () => {
+  base = await start();
 }, 120_000);
 
-afterAll(() => {
-  server?.kill("SIGTERM");
+afterAll(async () => {
+  await Promise.all(workers.map(stop));
 });
 
 describe("slides Worker API", () => {
@@ -120,4 +139,25 @@ describe("slides Worker API", () => {
     expect((await json(fake)).error.code).toBe("UNSUPPORTED_IMAGE");
     expect((await call("GET", "/decks/missing", { token: HUMAN })).status).toBe(404);
   });
+
+  test("decks and images live in D1 and R2: a second Worker and a restart see them", async () => {
+    await call("POST", "/decks", { token: AGENT, body: { title: "Shared", id: "shared" } });
+    const added = await call("POST", "/decks/shared/slides", { token: AGENT, body: { outline: "# Pic\n![A cat](cat.png)", images: { "cat.png": PNG } } });
+    expect(added.status).toBe(201);
+    const other = await start();
+    const seen = await fetch(`${other}/api/v1/slides/decks/shared`, { headers: { authorization: `Bearer ${HUMAN}` } });
+    expect(seen.status).toBe(200);
+    expect((await json(seen)).slides[0]).toMatchObject({ createdBy: { kind: "agent_of_human", name: "bot" }, machineMade: true });
+    // Both Workers hold the same deck, so edits from each one add up.
+    const edit = (url: string, n: number) =>
+      fetch(`${url}/api/v1/slides/decks/shared/slides`, { method: "POST", headers: { authorization: `Bearer ${AGENT}`, "content-type": "application/json" }, body: JSON.stringify({ outline: `# S${n}` }) });
+    const both = await Promise.all([0, 1, 2, 3].map((n) => edit(n % 2 ? base : other, n)));
+    expect(both.map((r) => r.status)).toEqual([201, 201, 201, 201]);
+    for (const worker of workers.splice(0)) await stop(worker);
+    base = await start();
+    const outline = await json(await call("GET", "/decks/shared", { token: HUMAN }));
+    expect(outline.slides).toHaveLength(5);
+    const html = await (await call("GET", "/decks/shared/render", { token: HUMAN })).text();
+    expect(html).toContain("data:image/png;base64,");
+  }, 180_000);
 });

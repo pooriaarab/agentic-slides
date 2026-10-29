@@ -1,19 +1,23 @@
+import { parseRegion } from "agentic-identity";
+import { createR2Blobs, createD1Store, D1_SCHEMA, type D1Like, type R2Like } from "agentic-identity/cloudflare";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { createApp } from "./api.js";
 import { ConfigError, parseTokens, tokenAuth, type Authenticator } from "./auth.js";
 import { createService } from "./service.js";
-import { createMemoryBlobs, createMemoryStore } from "agentic-identity";
 
 export interface WorkerEnv {
+  /** The D1 database. Create it in the EU: `wrangler d1 create agentic-slides --location weur`. */
+  DB?: D1Like;
+  /** The R2 bucket for images. Create it in the EU: `wrangler r2 bucket create agentic-slides-images --jurisdiction eu`. */
+  IMAGES?: R2Like;
   /** Secret. `token=kind:name,token=kind:name`. With none set, every API call is refused. */
   SLIDES_TOKENS?: string;
-  /** Set to "1" to accept that decks live in memory, per isolate, and can vanish between two requests. */
-  SLIDES_UNSAFE_MEMORY_STORE?: string;
+  /** The region both adapters declare. It is "eu" unless this says otherwise. "unknown" is for local runs, where D1 does not report a region. */
+  SLIDES_REGION?: string;
 }
 
-// A stopgap: decks live in memory, per isolate. Another isolate does not see them, and a restart loses
-// them. The Worker refuses every request until SLIDES_UNSAFE_MEMORY_STORE=1. Swap in durable adapters
-// behind the same Store and Blobs ports for real use.
-const service = createService({ store: createMemoryStore(), blobs: createMemoryBlobs() });
+// Both resources are declared in wrangler.jsonc as EU resources, so the adapters claim "eu" by default.
+// With "eu" the D1 adapter refuses any query that D1 did not report as served in the EU.
 
 function authenticator(config: string | undefined): Authenticator {
   try {
@@ -26,17 +30,54 @@ function authenticator(config: string | undefined): Authenticator {
   }
 }
 
-let cached: { config: string | undefined; app: ReturnType<typeof createApp> } | undefined;
+/** The schema is created once per database. A failed attempt is not kept, so the next request tries again. */
+const schemas = new WeakMap<object, Promise<unknown>>();
+async function ensureSchema(db: D1Like): Promise<void> {
+  let ready = schemas.get(db);
+  if (!ready) {
+    ready = db.prepare(D1_SCHEMA).run().catch((error: unknown) => {
+      schemas.delete(db);
+      throw error;
+    });
+    schemas.set(db, ready);
+  }
+  await ready;
+}
+
+// `signedUrl` is the one Blobs call that needs a secret, and this package never calls it.
+// A random secret per isolate (made on first use, as a Worker may not draw random bytes at load) satisfies the adapter and signs nothing that outlives the isolate.
+let urlSecret: string | undefined;
+
+let cached: { db: D1Like; images: R2Like; config: string | undefined; region: string | undefined; app: ReturnType<typeof createApp> } | undefined;
+
+function appFor(db: D1Like, images: R2Like, config: string | undefined, region: string | undefined) {
+  if (cached?.db !== db || cached.images !== images || cached.config !== config || cached.region !== region) {
+    const declared = parseRegion(region ?? "eu");
+    const service = createService({
+      store: createD1Store(db, { region: declared }),
+      blobs: createR2Blobs(images, { region: declared, urlBase: "https://slides.invalid/blob", urlSecret: (urlSecret ??= bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(32)))) }),
+    });
+    cached = { db, images, config, region, app: createApp({ service, auth: authenticator(config) }) };
+  }
+  return cached.app;
+}
 
 export default {
   async fetch(request: Request, env: WorkerEnv): Promise<Response> {
-    if (env.SLIDES_UNSAFE_MEMORY_STORE !== "1") {
-      const message = "This Worker keeps decks in memory and is a demo. Set SLIDES_UNSAFE_MEMORY_STORE=1 to run it anyway.";
-      return Response.json({ error: { code: "MISCONFIGURED", message } }, { status: 500 });
+    const missing = env.DB ? (env.IMAGES ? undefined : "bind an R2 bucket as IMAGES") : "bind a D1 database as DB";
+    if (missing || !env.DB || !env.IMAGES) {
+      return Response.json({ error: { code: "MISCONFIGURED", message: missing } }, { status: 500 });
     }
-    if (cached?.config !== env.SLIDES_TOKENS || cached === undefined) {
-      cached = { config: env.SLIDES_TOKENS, app: createApp({ service, auth: authenticator(env.SLIDES_TOKENS) }) };
+    try {
+      parseRegion(env.SLIDES_REGION ?? "eu");
+    } catch {
+      return Response.json({ error: { code: "MISCONFIGURED", message: 'SLIDES_REGION must be "eu", "us", or "unknown"' } }, { status: 500 });
     }
-    return cached.app.fetch(request);
+    try {
+      await ensureSchema(env.DB);
+    } catch {
+      return Response.json({ error: { code: "UNAVAILABLE", message: "the database is not ready. Try again" } }, { status: 503 });
+    }
+    return appFor(env.DB, env.IMAGES, env.SLIDES_TOKENS, env.SLIDES_REGION).fetch(request);
   },
 };
