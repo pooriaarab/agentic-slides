@@ -6,7 +6,7 @@ Status: early. Deck library, render, CLI, MCP server, PDF export, HTTP API, live
 
 - SDK: import { Deck } from "agentic-slides".
 - Remote SDK: createClient({ baseUrl, token }) from "agentic-slides/client". The client has these methods: health, me, listDecks, createDeck, deleteDeck, outline, addSlides, setSlide, editElement, moveSlide, deleteSlide, render, exportPdf, state, checkpoint, and the sharing methods access, grant, revoke, invite, acceptInvite, createShareLink, revokeShareLink, and readShared. It throws SlidesApiError with status and code. It never retries.
-- UI component: mount(element, { client, docId, principal, readOnly }) from "agentic-slides/ui", with "agentic-slides/ui.css". It returns { update, unmount }. React 19 is a peer dependency.
+- UI component: mount(element, { client, docId, principal, readOnly }) from "agentic-slides/ui", with "agentic-slides/ui.css". It returns { update, unmount }. React 19 is a peer dependency. Host mode: mount(element, { host: { doc, awareness?, putImage? }, principal }) edits your own Y.Doc with no HTTP call and no poll. See README, "Use your own Yjs document".
 - CLI: agentic-slides new "Talk" --as human:ada, then add, outline, edit, render, export.
 - MCP: run agentic-slides mcp.
 - Live: LiveDeck from "agentic-slides/live", CLI --live, or SLIDES_LIVE_URL and SLIDES_LIVE_TOKEN for the MCP server.
