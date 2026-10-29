@@ -1,4 +1,4 @@
-import { createStoreAuth, hasScope, parseRegion, type Region, type Store } from "agentic-identity";
+import { createStoreAuth, hasScope, parseRegion, resolveChain, type Region, type Store } from "agentic-identity";
 import type { Realtime } from "agentic-realtime";
 import { createR2Blobs, createD1Store, D1_SCHEMA, type D1Like, type R2Like } from "agentic-identity/cloudflare";
 import { bytesToHex } from "@noble/hashes/utils.js";
@@ -55,17 +55,38 @@ const refuse = (error: Error): Authenticator => async () => {
 function identityAuth(store: Store): Authenticator {
   const port = createStoreAuth(store);
   return async (request) => {
-    const found = await port.authenticate(request);
+    // Only a bearer token signs in. The store also reads a session cookie, and a cookie that a browser sends by itself must not write.
+    const token = /^bearer (\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1];
+    if (token === undefined) return null;
+    const found = await port.authenticate(new Request(request.url, { headers: { authorization: `Bearer ${token}` } }));
     if (!found) return null;
     let author: Principal;
     try {
       author = checkAuthor({ kind: found.kind, name: found.principalId });
     } catch {
-      return null;
+      throw new NotGrantedError("principal has no valid kind");
     }
+    // A principal id that cannot be a sharing subject (for example one with a dot) could hold no role, so it is refused here.
+    if (subjectOf({ author, role: "viewer" }) === null) throw new NotGrantedError("principal id cannot hold a role");
     const role = hasScope(found.scopes, "slides:write") ? "editor" : hasScope(found.scopes, "slides:read") ? "viewer" : null;
     if (!role) throw new NotGrantedError("no slides scope");
     return { author, role };
+  };
+}
+
+/** True when the principal `<kind>:<name>` is in the Store with a valid chain and holds `slides:write` now. A failed read is not trust. */
+function identityTrusted(store: Store): (id: string) => Promise<boolean> {
+  return async (id) => {
+    const cut = id.indexOf(":");
+    const kind = id.slice(0, cut);
+    const name = id.slice(cut + 1);
+    if (cut < 0) return false;
+    try {
+      const found = await resolveChain(name, async (key) => (await store.get("principals", key)) as never, { now: Date.now() });
+      return found.ok && found.kind === kind && hasScope(found.scopes, "slides:write");
+    } catch {
+      return false;
+    }
   };
 }
 
@@ -73,12 +94,13 @@ function identityAuth(store: Store): Authenticator {
  * The default is identity credentials. The static list is a dev fallback: with `SLIDES_UNSAFE_STATIC_TOKENS=1` it is tried first.
  * A list without the switch makes every API call fail with a config error, so a deploy never trusts it by accident.
  */
-function workerAuth(config: string | undefined, unsafe: boolean, store: Store): { auth: Authenticator; principals: Principal[] } {
-  if (config?.trim() && !unsafe) return { auth: refuse(new ConfigError("SLIDES_TOKENS needs SLIDES_UNSAFE_STATIC_TOKENS=1")), principals: [] };
+function workerAuth(config: string | undefined, unsafe: boolean, store: Store): { auth: Authenticator; principals: Principal[]; trusted: (id: string) => Promise<boolean> } {
+  const trusted = identityTrusted(store);
+  if (config?.trim() && !unsafe) return { auth: refuse(new ConfigError("SLIDES_TOKENS needs SLIDES_UNSAFE_STATIC_TOKENS=1")), principals: [], trusted };
   const identity = identityAuth(store);
-  if (!unsafe) return { auth: identity, principals: [] };
+  if (!unsafe) return { auth: identity, principals: [], trusted };
   const { auth: dev, principals } = tokensOf(config);
-  return { auth: async (request) => (await dev(request)) ?? (await identity(request)), principals };
+  return { auth: async (request) => (await dev(request)) ?? (await identity(request)), principals, trusted };
 }
 
 /** The schema is created once per database. A failed attempt is not kept, so the next request tries again. */
@@ -117,8 +139,8 @@ export function createWorker(options: WorkerOptions = {}) {
         blobs: createR2Blobs(images, { region: declared, urlBase: "https://slides.invalid/blob", urlSecret: (urlSecret ??= bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(32)))) }),
       });
       const live = options.live;
-      const { auth, principals } = workerAuth(config, unsafe, store);
-      cached = { db, images, config, unsafe, region, app: createApp({ service, auth, principals, store, live: live && ((env) => live(env as never, declared)) }) };
+      const { auth, principals, trusted } = workerAuth(config, unsafe, store);
+      cached = { db, images, config, unsafe, region, app: createApp({ service, auth, principals, trusted, store, live: live && ((env) => live(env as never, declared)) }) };
     }
     return cached.app;
   }

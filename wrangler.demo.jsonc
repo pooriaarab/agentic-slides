@@ -1,6 +1,6 @@
 {
   // Demo Worker on workers.dev. It runs the same code as wrangler.jsonc, with its own D1 database and R2 bucket in the EU.
-  // Deploy: `npm run deploy:demo`. The README has the steps. Set the tokens as a secret: `npx wrangler secret put SLIDES_TOKENS -c wrangler.demo.jsonc`.
+  // Deploy: `npm run deploy:demo`. The README has the steps. Requests sign in with agentic-identity credentials in this D1 database. If an old deploy has a SLIDES_TOKENS secret, remove it: `npx wrangler secret delete SLIDES_TOKENS -c wrangler.demo.jsonc`.
   "name": "agentic-slides-demo",
   "main": "src/live-worker.ts",
   "compatibility_date": "2026-01-01",

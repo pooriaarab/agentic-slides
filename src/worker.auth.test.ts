@@ -11,7 +11,8 @@ import { createD1Store, D1_SCHEMA, type D1Like, type R2Like } from "agentic-iden
 import { issueCredential, revokeCredential, type Store } from "agentic-identity";
 import { beforeAll, describe, expect, test } from "vitest";
 import { sqliteD1 } from "./sqlite-d1.js";
-import worker from "./worker.js";
+import { Deck } from "./core/deck.js";
+import worker, { createWorker } from "./worker.js";
 
 let db: D1Like;
 const bucket = {} as R2Like;
@@ -27,6 +28,7 @@ beforeAll(async () => {
     { id: "ada", kind: "human", scopes: ["slides:write"] },
     { id: "eve", kind: "human", scopes: ["slides:read"] },
     { id: "ned", kind: "human", scopes: ["docs:write"] },
+    { id: "dotted.name", kind: "human", scopes: ["slides:write"] },
     { id: "all", kind: "human", scopes: ["*:admin"] },
     { id: "helper", kind: "agent_of_human", parentId: "ada", scopes: ["slides:write"] },
     { id: "gone", kind: "human", scopes: ["slides:write"] },
@@ -66,6 +68,17 @@ describe("identity credentials are the default", () => {
     expect((await create(tokens.eve!, "d2")).status).toBe(403);
   });
 
+  test("a session cookie alone does not sign in, and the bearer word is not case-sensitive", async () => {
+    const post = (headers: Record<string, string>) => worker.fetch(new Request("http://x/api/v1/slides/decks", { method: "POST", headers: { "content-type": "text/plain", ...headers }, body: JSON.stringify({ title: "T", id: "cookie" }) }), env());
+    expect((await post({ cookie: `session=${tokens.ada}` })).status).toBe(401);
+    expect((await call(null, "/decks/cookie")).status).toBe(401);
+    expect((await worker.fetch(new Request("http://x/api/v1/slides/me", { headers: { authorization: `bearer ${tokens.ada}` } }), env())).status).toBe(200);
+  });
+
+  test("a principal id that cannot hold a deck role is a 403, not an editor that fails later", async () => {
+    expect((await call(tokens["dotted.name"]!, "/me")).status).toBe(403);
+  });
+
   test("a revoked credential is a 401", async () => {
     expect((await call(tokens.gone!, "/me")).status).toBe(401);
   });
@@ -73,7 +86,10 @@ describe("identity credentials are the default", () => {
   test("a store that fails is a 500, never a 401", async () => {
     const broken = { ...db, prepare: (sql: string) => (sql === D1_SCHEMA ? db.prepare(sql) : { bind: () => ({ first: () => Promise.reject(new Error("boom")), all: () => Promise.reject(new Error("boom")), run: () => Promise.reject(new Error("boom")) }) }) } as unknown as D1Like;
     const response = await worker.fetch(new Request("http://x/api/v1/slides/me", { headers: { authorization: `Bearer ${tokens.ada}` } }), { ...(env() as object), DB: broken } as never);
-    expect(response.status).toBeGreaterThanOrEqual(500);
+    expect(response.status).toBe(500);
+    const text = JSON.stringify(await response.json());
+    expect(text).toContain("INTERNAL");
+    expect(text).not.toContain("boom");
   });
 });
 
@@ -87,10 +103,33 @@ describe("the static list is a dev fallback", () => {
     expect((await worker.fetch(new Request("http://x/health"), env({ SLIDES_TOKENS: list }))).status).toBe(200);
   });
 
+  test.each(["true", "yes", "0", ""])("the switch value %j does not turn the list on", async (value) => {
+    expect((await call(STATIC, "/me", {}, { SLIDES_TOKENS: list, SLIDES_UNSAFE_STATIC_TOKENS: value })).status).toBe(500);
+  });
+
   test("with the switch it signs in, and the identity credentials still work", async () => {
     const vars = { SLIDES_TOKENS: list, SLIDES_UNSAFE_STATIC_TOKENS: "1" };
     expect(await (await call(STATIC, "/me", {}, vars)).json()).toMatchObject({ name: "dev", role: "editor" });
     expect((await call(tokens.ada!, "/me", {}, vars)).status).toBe(200);
     expect((await call("u".repeat(40), "/me", {}, vars)).status).toBe(401);
+  });
+});
+
+describe("a checkpoint in a room with two identity users", () => {
+  const label = (name: string) => ({ kind: "human", name }) as const;
+  test("it keeps a slide of another user who holds slides:write, and refuses one who does not", async () => {
+    await store.transaction((tx) => tx.put("principals", "bob", { id: "bob", kind: "human", scopes: ["slides:write"] }));
+    const contributors = [{ id: "human:bob", kind: "human", machine: false }, { id: "human:ned", kind: "human", machine: false }];
+    const live = createWorker({ live: () => ({ meta: async () => ({ updates: 0, compactions: 0, contributors }) }) as never });
+    const send = (token: string, body: Uint8Array) => live.fetch(new Request("http://x/api/v1/slides/decks/room/checkpoint", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: body as BodyInit }), env());
+    expect((await create(tokens.ada!, "room")).status).toBe(201);
+    const state = new Uint8Array(await (await call(tokens.ada!, "/decks/room/state")).arrayBuffer());
+    const copy = (author: ReturnType<typeof label>) => {
+      const deck = Deck.fromUpdate(state);
+      deck.addSlide({ layout: "blank" }, author);
+      return deck.encode();
+    };
+    expect((await send(tokens.ada!, copy(label("bob")))).status).toBe(200);
+    expect((await send(tokens.ada!, copy(label("ned")))).status).toBe(403);
   });
 });

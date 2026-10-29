@@ -113,7 +113,7 @@ npx wrangler r2 bucket create agentic-slides-demo-images --jurisdiction eu
 npm ci && npm run deploy:demo
 ```
 
-The Worker signs requests in with agentic-identity credentials. Issue a credential for a principal in the same D1 database (see "Sign in" below). The demo needs no static token.
+The Worker signs requests in with agentic-identity credentials. Issue a credential for a principal in the same D1 database (see "Sign in" below). The demo needs no static token. If an earlier deploy has a `SLIDES_TOKENS` secret, delete it with `npx wrangler secret delete SLIDES_TOKENS -c wrangler.demo.jsonc`, or every API call answers 500.
 
 To redeploy after a change, run `npm run deploy:demo` again. Put no token in a file or in CI.
 
@@ -127,9 +127,9 @@ The Worker uses agentic-identity auth. A bearer key or an access token in the St
 
 - `slides:write` is an editor. A wildcard such as `*:admin` also covers it.
 - `slides:read` is a viewer. It reads and cannot write.
-- A valid credential with neither scope gets 403. No credential, an unknown one, or a revoked one gets 401.
+- A valid credential with neither scope, or a principal id that cannot hold a deck role (it needs 1 to 128 of A-Z a-z 0-9 _ -), gets 403. No credential, an unknown one, or a revoked one gets 401.
 
-A store that fails gives a 5xx answer, never a 401.
+Only a bearer token signs in. A session cookie does not. A store that fails gives a 5xx answer, never a 401. A checkpoint trusts the labels of room contributors that hold `slides:write` in the Store.
 
 ### Local dev path
 
