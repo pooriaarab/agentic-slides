@@ -6,7 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { LiveDeck } from "../live.js";
-import { worker, type Server } from "./server.js";
+import { shareAll, worker, type Server } from "./server.js";
 
 // End to end: the built CLI and MCP server and the SDK join live rooms on a real Worker (wrangler dev, Durable Objects).
 // Needs `npm run build`.
@@ -83,6 +83,7 @@ describe("the MCP server refuses a live setting that it cannot use", () => {
 describe("a person and an agent edit one deck in a live room", () => {
   test("the CLI makes the deck, the MCP server and the SDK edit it at once, and both converge", async () => {
     expect(cli(["new", "Shared", "--id", "shared", "--live", server.url], { SLIDES_LIVE_TOKEN: HUMAN }).code).toBe(0);
+    await shareAll(server.url, HUMAN, "shared", "ada");
     const person = await LiveDeck.join("shared", { server: server.url, token: HUMAN });
     try {
       const [agent] = await Promise.all([

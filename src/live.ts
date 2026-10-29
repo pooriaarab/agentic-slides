@@ -38,7 +38,7 @@ const CODES: Record<SlidesErrorCode, true> = {
   INVALID_AUTHOR: true, EMPTY_OUTLINE: true, EMPTY_SLIDE: true, UNKNOWN_LAYOUT: true, TEXT_OVERFLOW: true, IMAGE_MISSING: true, REMOTE_ASSET: true,
   NO_SLOT: true, OUTLINE_INVALID: true, NO_SLIDE: true, NO_ELEMENT: true, OUT_OF_RANGE: true, OUT_OF_BOUNDS: true, BAD_PATCH: true, BAD_THEME: true,
   NO_DECK: true, DECK_EXISTS: true, INVALID_ID: true, UNSUPPORTED_IMAGE: true, EXPORT_LIMIT: true, TOO_LARGE: true, STORE_BUSY: true,
-  FORBIDDEN: true, INVALID_UPDATE: true, LIVE_UNAVAILABLE: true,
+  FORBIDDEN: true, INVALID_UPDATE: true, LIVE_UNAVAILABLE: true, INVALID_SHARE: true,
 };
 
 /**

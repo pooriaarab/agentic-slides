@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { SlidesApiError, createClient } from "../client.js";
-import { worker, type Server } from "./server.js";
+import { shareAll, worker, type Server } from "./server.js";
 
 // End to end: the remote client against the real Worker (wrangler dev).
 const HUMAN = "human-token-0123456789-abcdefghij";
@@ -30,8 +30,9 @@ describe("the remote client on a real Worker", () => {
   test("builds, edits, reads, renders, and exports a deck", async () => {
     const agent = as(AGENT);
     expect(await agent.health()).toMatchObject({ ok: true, pack: "agentic-slides" });
-    expect(await agent.me()).toEqual({ kind: "agent_of_human", name: "bot", role: "editor" });
+    expect(await agent.me()).toEqual({ kind: "agent_of_human", name: "bot", role: "editor", subject: { kind: "agent", id: "agent_of_human_bot" } });
     expect(await agent.createDeck({ title: "Plan", id: "plan" })).toEqual({ id: "plan" });
+    await shareAll(server.url, AGENT, "plan", "bot");
     const { slideIds } = await agent.addSlides("plan", { outline: "# One\n- a\n---\n# Pic\n![cat](cat.png)\n---\n# Three\n- c", images: { "cat.png": PNG } });
     expect(slideIds).toHaveLength(3);
     await agent.addSlides("plan", { layout: "section", at: 2 });

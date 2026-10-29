@@ -27,11 +27,19 @@ export async function createDeck(page: Page, title: string): Promise<string> {
   return page.url().split("/deck/")[1]!;
 }
 
+/** Lets the person and the viewer use a deck that the agent made. The agent owns it. */
+export async function shareAgentDeck(base: string | undefined, id: string): Promise<void> {
+  for (const [subjectId, role] of [["ada", "editor"], ["eve", "viewer"]] as const) {
+    await ok(api(base, `/decks/${id}/grants`, AGENT, { method: "POST", body: JSON.stringify({ subjectKind: "human", subjectId, role }) }));
+  }
+}
+
 /** A deck that an agent made, with two slides, so the page shows an agent mark. */
 export async function agentDeck(base: string | undefined, title: string): Promise<string> {
   const made = (await (await ok(api(base, "/decks", AGENT, { method: "POST", body: JSON.stringify({ title }) }))).json()) as { id: string };
   const outline = "# Welcome\n- First point\n- Second point\n> Say hello\n---\nlayout: title\n# Thank you\n";
   await ok(api(base, `/decks/${made.id}/slides`, AGENT, { method: "POST", body: JSON.stringify({ outline }) }));
+  await shareAgentDeck(base, made.id);
   return made.id;
 }
 

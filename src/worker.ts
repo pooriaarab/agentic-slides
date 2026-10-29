@@ -71,13 +71,14 @@ export function createWorker(options: WorkerOptions = {}) {
   function appFor(db: D1Like, images: R2Like, config: string | undefined, region: string | undefined) {
     if (cached?.db !== db || cached.images !== images || cached.config !== config || cached.region !== region) {
       const declared = parseRegion(region ?? "eu");
+      const store = createD1Store(db, { region: declared });
       const service = createService({
-        store: createD1Store(db, { region: declared }),
+        store,
         blobs: createR2Blobs(images, { region: declared, urlBase: "https://slides.invalid/blob", urlSecret: (urlSecret ??= bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(32)))) }),
       });
       const live = options.live;
       const { auth, principals } = tokensOf(config);
-      cached = { db, images, config, region, app: createApp({ service, auth, principals, live: live && ((env) => live(env as never, declared)) }) };
+      cached = { db, images, config, region, app: createApp({ service, auth, principals, store, live: live && ((env) => live(env as never, declared)) }) };
     }
     return cached.app;
   }

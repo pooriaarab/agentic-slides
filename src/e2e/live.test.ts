@@ -1,7 +1,7 @@
 import { SyncClient } from "agentic-realtime/client";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { Deck } from "../core/deck.js";
-import { worker, type Server } from "./server.js";
+import { shareAll, worker, type Server } from "./server.js";
 
 // End to end: the live room in the Worker under `wrangler dev`, with a real Durable Object.
 const HUMAN = "human-token-0123456789-abcdefghij";
@@ -28,6 +28,7 @@ afterAll(async () => {
 describe("a deck in a live room", () => {
   test("a person and an agent edit one deck at once, both converge, and a restart keeps it", async () => {
     expect((await api("/decks", HUMAN, { method: "POST", body: JSON.stringify({ title: "Talk", id: "talk" }) })).status).toBe(201);
+    await shareAll(server.url, HUMAN, "talk", "ada");
     const [one, two] = await Promise.all([room("talk", HUMAN), room("talk", AGENT)]);
     try {
       const seed = new Uint8Array(await (await api("/decks/talk/state", HUMAN)).arrayBuffer());

@@ -1,12 +1,13 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { COMMAND } from "./brand.js";
 import type { Realtime } from "agentic-realtime";
 import { acceptWebSocketProtocol, principalFromWebSocketRequest } from "agentic-identity/http";
-import type { Auth, PrincipalContext } from "agentic-identity";
+import { ROLES, createSharing, type Auth, type Json, type PrincipalContext, type Store } from "agentic-identity";
+import { DECK, DECK_ID, contextOf, subjectOf } from "./access.js";
 import { ConfigError, type Authenticator, type Caller, type SlidesRole } from "./auth.js";
-import { SlidesError, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
+import { SlidesError, fail, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
 import { toBase64 } from "./bytes.js";
 import { CSP } from "./render/html.js";
 import { PRESENT_CSP } from "./render/present.js";
@@ -21,11 +22,16 @@ export interface AppDeps {
   live?: (env: unknown) => Realtime;
   /** The people and agents that the editor tokens name now. A checkpoint trusts a label only from these. Without it, none is trusted. */
   principals?: Principal[];
+  /**
+   * The store that holds the roles. With it, each deck made through the API has an owner, and the routes check the role of the caller.
+   * Without it, the token role is the only check. A deck with no owner (made before sharing) keeps that check.
+   */
+  store?: Store;
 }
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 const NOT_FOUND = new Set<SlidesErrorCode>(["NO_DECK", "NO_SLIDE", "NO_ELEMENT"]);
-const BAD_REQUEST = new Set<SlidesErrorCode>(["INVALID_ID", "BAD_PATCH", "BAD_THEME", "INVALID_AUTHOR", "INVALID_UPDATE"]);
+const BAD_REQUEST = new Set<SlidesErrorCode>(["INVALID_SHARE", "INVALID_ID", "BAD_PATCH", "BAD_THEME", "INVALID_AUTHOR", "INVALID_UPDATE"]);
 
 const statusOf = (code: SlidesErrorCode): 403 | 404 | 409 | 400 | 413 | 422 | 503 =>
   code === "FORBIDDEN" ? 403 : NOT_FOUND.has(code) ? 404 : code === "DECK_EXISTS" ? 409 : code === "TOO_LARGE" ? 413 : code === "STORE_BUSY" ? 503 : BAD_REQUEST.has(code) ? 400 : 422;
@@ -49,8 +55,28 @@ const body = {
   set: z.object({ outline: z.string(), images }),
   page: z.object({ limit: z.coerce.number().int().min(1).max(200).optional(), cursor: z.string().min(1).max(2000).optional() }),
   move: z.object({ to: z.number().int() }),
+  grant: z.object({ subjectKind: z.enum(["human", "agent"]), subjectId: z.string().min(1).max(128), role: z.enum(ROLES) }),
+  invite: z.object({ role: z.enum(ROLES), email: z.string().max(320).optional(), handle: z.string().max(128).optional(), expiresInMs: z.number().int().positive().optional() }),
+  link: z.object({ role: z.enum(ROLES), expiresInMs: z.number().int().positive().optional(), signedInOnly: z.boolean().optional() }),
+  access: z.object({ limit: z.coerce.number().int().min(1).max(200).optional(), cursor: z.string().min(1).max(2000).optional() }),
+  accept: z.object({ id: z.string().min(1).max(128) }),
 };
 
+const SHARE_ERROR = /^(invalid|give an|expiresAt|expiresInMs|the last owner|limit must)/;
+/** Runs sharing code. Its plain errors become slides errors. Any other failure passes on as it is. */
+async function viaSharing<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!(error instanceof Error) || error instanceof SlidesError) throw error;
+    if (error.message === "forbidden") return fail("FORBIDDEN", "This caller may not do this.");
+    if (error.message === "resource exists") return fail("DECK_EXISTS", "This deck id has an owner already.");
+    if (error instanceof RangeError || SHARE_ERROR.test(error.message)) return fail("INVALID_SHARE", error.message);
+    throw error;
+  }
+}
+
+const SHARE_ROUTE = /\/decks\/[^/]+\/(access|grants|invites|links)(\/|$)/;
 const ROOM_ROUTE = /\/decks\/[^/]+\/ws$/;
 /** The WebSocket subprotocol of this app. A browser also offers `agentic-slides.bearer.<token>`, which holds the token. */
 export const ROOM_PROTOCOL = "agentic-slides";
@@ -80,7 +106,8 @@ function roomAuth(auth: AppDeps["auth"]): { port: Auth; callers: WeakMap<Princip
 const failure = (code: string, message: string, extra: object = {}) => ({ error: { code, message, ...extra } });
 
 /** The HTTP API under /api/v1/slides. It mirrors the CLI. The caller's token names the author of each edit. */
-export function createApp({ service, auth, live, principals = [] }: AppDeps) {
+export function createApp({ service, auth, live, principals = [], store }: AppDeps) {
+  const sharing = store && createSharing(store);
   const configured = new Set(principals.map((who) => `${who.kind}:${who.name}`));
   const app = new Hono<{ Variables: { author: Principal; role: SlidesRole } }>();
   app.use("*", async (c, next) => {
@@ -114,8 +141,39 @@ export function createApp({ service, auth, live, principals = [] }: AppDeps) {
     await next();
   });
 
+  const callerOf = (c: Context): Caller => ({ author: c.get("author"), role: c.get("role") });
+  const contextFor = (c: Context): PrincipalContext => contextOf(callerOf(c)) ?? fail("FORBIDDEN", "The name of this token cannot hold a role.");
+  /** Who may do what on a deck: a delete and the share routes need an owner, a read needs a viewer, any other change needs an editor. */
+  const actionOf = (method: string, rest: string): "read" | "write" | "admin" => {
+    if (/^\/(access|grants|invites|links)(\/|$)/.test(rest) || (method === "DELETE" && rest === "")) return "admin";
+    return method === "GET" || method === "HEAD" ? "read" : "write";
+  };
+  // A deck with an owner is open to the people and agents that hold a role on it. A caller with no role learns nothing: the answer is the one for a missing deck.
+  api.use("/decks/:deck/*", async (c, next) => {
+    const id = c.req.param("deck");
+    if (!sharing || !store || !DECK_ID.test(id)) return next();
+    const owned = await store.get<{ type?: string }>("resources", id);
+    if (!owned) {
+      // Made before sharing, or no deck at all. The deck routes answer as before. The share routes have no owner to ask.
+      if (!SHARE_ROUTE.test(c.req.path)) return next();
+      await service.exists(id);
+      return c.json(failure("FORBIDDEN", "This deck has no owner, so it cannot be shared."), 403);
+    }
+    const ctx = contextOf(callerOf(c));
+    const decision = owned.type === DECK && ctx ? await sharing.can(ctx, actionOf(c.req.method, c.req.path.replace(/^.*?\/decks\/[^/]+/, "")), id) : { allowed: false };
+    if (!decision.allowed) {
+      return "role" in decision && decision.role
+        ? c.json(failure("FORBIDDEN", `This caller is ${decision.role === "owner" ? "an owner" : `a ${decision.role}`} of the deck. It cannot do this.`), 403)
+        : c.json(failure("NO_DECK", `no deck "${id}"`), 404);
+    }
+    // The room gets the role to match: only an editor or an owner may write there.
+    const role = (decision as { role?: string }).role;
+    c.set("role", role === "owner" || role === "editor" ? c.get("role") : "viewer");
+    await next();
+  });
+
   // Who the token stands for. A live client reads its author kind here, so it never claims one.
-  api.get("/me", (c) => c.json({ ...c.get("author"), role: c.get("role") }));
+  api.get("/me", (c) => c.json({ ...c.get("author"), role: c.get("role"), subject: subjectOf(callerOf(c)) }));
 
   // The live room of a deck. The token sets the author kind and the role. A viewer joins and reads, and the room drops its writes.
   api.get("/decks/:deck/ws", async (c) => {
@@ -148,11 +206,31 @@ export function createApp({ service, auth, live, principals = [] }: AppDeps) {
 
   api.post("/decks", async (c) => {
     const input = body.create.parse(await c.req.json());
-    return c.json(await service.create({ ...input, author: c.get("author") }), 201);
+    const ctx = sharing && contextFor(c);
+    const made = await service.create({ ...input, author: c.get("author") });
+    if (sharing && ctx) {
+      // The creator owns the deck. If that fails, the deck goes too, so no deck stays open to every editor.
+      try {
+        await viaSharing(() => sharing.createResource(ctx, { id: made.id, type: DECK }));
+      } catch (error) {
+        await service.deleteDeck(made.id, c.get("author")).catch(() => undefined);
+        throw error;
+      }
+    }
+    return c.json(made, 201);
   });
   api.get("/decks", async (c) => {
     const { limit, cursor } = body.page.parse({ limit: c.req.query("limit"), cursor: c.req.query("cursor") });
-    return c.json(await service.list({ limit, cursor }));
+    const page = await service.list({ limit, cursor });
+    if (!sharing || !store) return c.json(page);
+    // A deck with an owner shows only to a caller with a role. The page can be short while `nextCursor` stays.
+    const ctx = contextOf(callerOf(c));
+    const decks: typeof page.decks = [];
+    for (const deck of page.decks) {
+      const owned = await store.get<{ type?: string }>("resources", deck.id);
+      if (!owned || (owned.type === DECK && ctx && (await sharing.can(ctx, "read", deck.id)).allowed)) decks.push(deck);
+    }
+    return c.json({ ...page, decks });
   });
   api.delete("/decks/:deck", async (c) => {
     const id = c.req.param("deck");
@@ -160,6 +238,9 @@ export function createApp({ service, auth, live, principals = [] }: AppDeps) {
     await service.exists(id);
     if (live) await live(c.env).erase(id);
     await service.deleteDeck(id, c.get("author"));
+    // The deck is gone. Erase its roles, links, and invites, so a new deck with the same id starts clean.
+    const ctx = sharing && contextOf(callerOf(c));
+    if (sharing && ctx && (await store!.get("resources", id))) await viaSharing(() => sharing.deleteResource(ctx, id));
     return c.json({ ok: true });
   });
   api.get("/decks/:deck", async (c) => c.json(await service.outline(c.req.param("deck"))));
@@ -203,6 +284,87 @@ export function createApp({ service, auth, live, principals = [] }: AppDeps) {
     });
   });
 
+  // Sharing. Identity decides who may share: the guard above has checked for an owner already, and identity checks again.
+  const needSharing = () => sharing ?? fail("INVALID_SHARE", "This server keeps no roles. Sharing is off.");
+  const lifetime = (ms: number | undefined) => (ms === undefined ? {} : { expiresAt: Date.now() + ms });
+  api.get("/decks/:deck/access", async (c) => {
+    const id = c.req.param("deck");
+    const { limit, cursor } = body.access.parse({ limit: c.req.query("limit"), cursor: c.req.query("cursor") });
+    const share = needSharing();
+    const ctx = contextFor(c);
+    const grants = await viaSharing(() => share.listGrants(ctx, id, { limit, cursor }));
+    const invites = await viaSharing(() => share.listInvites(ctx, id, { limit }));
+    // A link token is never shown: the store keeps only its hash.
+    const links = (await store!.query<Record<string, Json>>("links", { where: { resourceId: id }, limit: 100 })).items.map(({ data: l }) => ({
+      id: l.id, role: l.role, signedInOnly: l.signedInOnly === true, expiresAt: l.expiresAt ?? null, revoked: l.revokedAt != null,
+    }));
+    return c.json({ grants: grants.grants, invites: invites.invites, links, ...(grants.nextCursor === undefined ? {} : { nextCursor: grants.nextCursor }), ...(invites.nextCursor === undefined ? {} : { nextInviteCursor: invites.nextCursor }) });
+  });
+  api.post("/decks/:deck/grants", async (c) => {
+    const input = body.grant.parse(await c.req.json());
+    const share = needSharing();
+    await viaSharing(() => share.grant(contextFor(c), c.req.param("deck"), { kind: input.subjectKind, id: input.subjectId }, input.role));
+    return c.json({ ok: true });
+  });
+  api.delete("/decks/:deck/grants", async (c) => {
+    const input = body.grant.omit({ role: true }).parse({ subjectKind: c.req.query("subjectKind"), subjectId: c.req.query("subjectId") });
+    const share = needSharing();
+    await viaSharing(() => share.revokeGrant(contextFor(c), c.req.param("deck"), { kind: input.subjectKind, id: input.subjectId }));
+    return c.json({ ok: true });
+  });
+  // An invite sends no message. The owner gives the id to the person or the agent.
+  api.post("/decks/:deck/invites", async (c) => {
+    const input = body.invite.parse(await c.req.json());
+    const share = needSharing();
+    return c.json(await viaSharing(() => share.createInvite(contextFor(c), c.req.param("deck"), input)), 201);
+  });
+  api.post("/decks/:deck/links", async (c) => {
+    const input = body.link.parse(await c.req.json());
+    const share = needSharing();
+    const made = await viaSharing(() => share.createLink(contextFor(c), c.req.param("deck"), { role: input.role, signedInOnly: input.signedInOnly === true, ...lifetime(input.expiresInMs) }));
+    return c.json(made, 201);
+  });
+  api.delete("/decks/:deck/links/:link", async (c) => {
+    const share = needSharing();
+    await viaSharing(() => share.revokeLink(contextFor(c), c.req.param("link")));
+    return c.json({ ok: true });
+  });
+  // A token has no verified email, so only an invite by handle can be accepted here. The handle is the name of the token.
+  api.post("/invites/accept", async (c) => {
+    const { id } = body.accept.parse(await c.req.json());
+    const share = needSharing();
+    await viaSharing(() => share.acceptInvite(contextFor(c), id, { handle: c.get("author").name }));
+    return c.json({ ok: true });
+  });
+
+  // A visitor reads a deck with a link token in `x-link-token`. A bearer token, if sent, must be valid. A role from a link is for reading only.
+  const shared = new Hono<{ Variables: { author: Principal; role: SlidesRole } }>();
+  const visit = async (c: Context): Promise<{ id: string } | Response> => {
+    const id = c.req.param("deck") ?? "";
+    const token = c.req.header("x-link-token");
+    let ctx: PrincipalContext | null = null;
+    if (c.req.header("authorization") !== undefined) {
+      const caller = await auth(c.req.raw);
+      if (!caller) return c.json(failure("UNAUTHORIZED", "Send a valid bearer token."), 401, { "www-authenticate": "Bearer" });
+      ctx = contextOf(caller);
+    }
+    const gone = c.json(failure("NO_DECK", `no deck "${id}"`), 404);
+    if (!sharing || !token || !DECK_ID.test(id)) return gone;
+    return (await sharing.can(ctx, "read", id, { linkToken: token })).allowed ? { id } : gone;
+  };
+  shared.get("/:deck", async (c) => {
+    const seen = await visit(c);
+    return seen instanceof Response ? seen : c.json(await service.outline(seen.id));
+  });
+  shared.get("/:deck/render", async (c) => {
+    const seen = await visit(c);
+    if (seen instanceof Response) return seen;
+    const present = c.req.query("present") === "1";
+    return c.html(await service.render(seen.id, { present }), 200, { "content-security-policy": present ? PRESENT_CSP : CSP });
+  });
+
+  // The visitor routes come first, so the bearer check of `api` does not run for them.
+  app.route("/api/v1/slides/shared", shared);
   app.route("/api/v1/slides", api);
   app.notFound((c) => c.json(failure("NOT_FOUND", "No such route."), 404));
   app.onError((error, c) => {
