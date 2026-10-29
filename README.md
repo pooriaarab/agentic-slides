@@ -78,9 +78,10 @@ its change, saves it, and leaves. A tool call never carries a credential.
 ## HTTP API
 
 A Cloudflare Worker (Hono) serves `/api/v1/slides`. It mirrors the CLI. Set tokens as a secret.
-Each token names who edits, so a client cannot claim a different kind:
+Each token names who edits, so a client cannot claim a different kind. Build first, because `wrangler.jsonc` serves `dist/ui`:
 
 ```sh
+npm run build
 WRANGLER_SEND_METRICS=false npx wrangler dev --var SLIDES_REGION:unknown \
   --var 'SLIDES_TOKENS:my-long-token-0123456789-abcdefghij=agent_of_human:bot'
 
