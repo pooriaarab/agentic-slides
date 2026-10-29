@@ -7,9 +7,8 @@
 
 Build and present slide decks with people and agents.
 
-> Status: early. The deck library, the HTML render, the CLI, the MCP server, PDF
-> export, and the HTTP API work. ODP and PPTX export are not ready yet. The package
-> is not on npm yet.
+> Status: early. The deck library, the HTML render, the CLI, the MCP server,
+> PDF export, the HTTP API, and live rooms work. ODP and PPTX export are not ready yet.
 
 ## Install
 

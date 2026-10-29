@@ -26,6 +26,13 @@ function setup(options: { live?: boolean } = {}) {
     createSnapshot: async () => null,
     listSnapshots: async () => [],
     getSnapshot: async () => null,
+    // The routes under test never call these. They fail if a route starts to.
+    revoke: async () => Promise.reject(new Error("not used by these routes")),
+    updateRole: async () => Promise.reject(new Error("not used by these routes")),
+    roleFor: async () => Promise.reject(new Error("not used by these routes")),
+    erase: async () => Promise.reject(new Error("not used by these routes")),
+    exportHistory: async () => Promise.reject(new Error("not used by these routes")),
+    attribution: async () => Promise.reject(new Error("not used by these routes")),
   };
   const service = createService({ store: createMemoryStore(), blobs: createMemoryBlobs() });
   const tokens = parseTokens(TOKENS);

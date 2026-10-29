@@ -2,7 +2,21 @@
 
 This file lists the notable changes to this project, by version.
 
-## Unreleased
+## 0.2.0 - 2026-10-29
+
+### Breaking changes
+
+- The Worker entry is now `src/live-worker.ts`. `wrangler.jsonc` adds the `SYNC_ROOM` Durable Object
+  binding and its `v1` migration. Deploy with the new `wrangler.jsonc`. A Worker that lacks the
+  binding cannot serve live rooms, and `POST /decks/:deck/checkpoint` fails with a server error.
+- The token setting `SLIDES_TOKENS` reads the text after the last `;` as the role. The role must be
+  `editor` or `viewer`. If one entry has a bad role, such as `human:a;b`, the Worker refuses every
+  API request with a configuration error. `GET /health` still answers.
+  An entry such as `human:ada;viewer` is no longer an editor named `ada;viewer`. It is a viewer
+  named `ada`. An entry such as `human:ada;editor` is now named `ada`. Check the entries before you
+  deploy.
+- `SlidesErrorCode` has three new codes: `FORBIDDEN`, `INVALID_UPDATE`, and `LIVE_UNAVAILABLE`. A
+  `switch` that must cover every code needs a case for each new code.
 
 ### Added
 
@@ -15,7 +29,11 @@ This file lists the notable changes to this project, by version.
 
 ### Changed
 
-- `agentic-identity` is ^0.3.0. The package depends on `agentic-realtime`.
+- The root exports of `agentic-slides` stay the same. The `agentic-slides/live` export is new.
+- The package depends on `agentic-realtime` ^0.2.0 for live rooms. This package does not call the methods
+  `revoke`, `updateRole`, `roleFor`, `erase`, `exportHistory`, and `attribution` of the `Realtime` port yet.
+  A live room cannot revoke a token or change its role in this release.
+- `agentic-identity` moves from ^0.2.0 to ^0.4.0.
 
 ## 0.1.0 - 2026-10-29
 

@@ -2,7 +2,7 @@
 
 Build and present slide decks with people and agents.
 
-Status: early. Deck library, render, CLI, MCP server, and PDF export.
+Status: early. Deck library, render, CLI, MCP server, PDF export, HTTP API, and live rooms.
 
 - SDK: import { Deck } from "agentic-slides".
 - CLI: agentic-slides new "Talk" --as human:ada, then add, outline, edit, render, export.
