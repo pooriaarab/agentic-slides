@@ -5,7 +5,7 @@ import { fail } from "./core/principal.js";
 import { DEFAULT_LIMITS, type Limits } from "./export/limits.js";
 
 /** Input shapes that the MCP server and the HTTP API share. */
-export const images = z.record(z.string()).optional().describe("Image files for the outline: path -> base64 PNG or JPEG.");
+export const images = z.record(z.string(), z.string()).optional().describe("Image files for the outline: path -> base64 PNG or JPEG.");
 
 export const patch = z
   .object({

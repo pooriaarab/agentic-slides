@@ -8,6 +8,11 @@ This file lists the notable changes to this project, by version.
 
 - The Worker signs requests in with agentic-identity credentials by default. The scope `slides:write` makes an editor, `slides:read` a viewer, and a valid credential with neither gets 403. `SLIDES_TOKENS` is now a dev fallback. It needs `SLIDES_UNSAFE_STATIC_TOKENS=1`. A Worker that sets `SLIDES_TOKENS` without the switch answers every API call with 500 `MISCONFIGURED`. Set the switch in dev, or issue identity credentials.
 
+### Fixed
+
+- zod moves to 4.6.7 to fix GHSA-mrhx-c7xc-m3w5, a high advisory (memory exhaustion when validating oversized constrained collections). The direct dependency moves from `^3.25.0` to `^4.6.7`. An npm `overrides` entry moves `agentic-design` and `agentic-formats` to zod 4.6.7 in this repo's install and build. npm ignores `overrides` in a published package, so an install of this package still gets zod 3 under those two packages until they accept zod 4. The `@modelcontextprotocol/sdk` floor moves from `^1.12.0` to `^1.23.0`, because earlier SDK releases depend on zod 3.
+- zod 4 words some validation messages differently, and it is stricter with some numbers (for example, `Infinity`). A 400 response can carry other `issues[].message` text. A client that matches on message text should match on the error code.
+
 ## 0.9.0 - 2026-10-29
 
 Read the breaking changes before you upgrade or deploy.

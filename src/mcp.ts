@@ -41,9 +41,9 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
     description: string,
     inputSchema: S,
     annotations: Record<string, boolean>,
-    run: (args: z.objectOutputType<S, z.ZodTypeAny>) => Promise<unknown>,
+    run: (args: z.infer<z.ZodObject<S>>) => Promise<unknown>,
   ) =>
-    server.registerTool(name, { description, inputSchema, annotations }, (async (args: z.objectOutputType<S, z.ZodTypeAny>): Promise<Result> => {
+    server.registerTool(name, { description, inputSchema, annotations }, (async (args: z.infer<z.ZodObject<S>>): Promise<Result> => {
       try {
         return ok(await run(args));
       } catch (error) {
