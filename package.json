@@ -63,6 +63,7 @@
     "clean": "rm -rf dist",
     "prepack": "npm run build",
     "ci:local": "npm run build && npm run typecheck && npm test && npm run e2e",
+    "deploy:demo": "npm run build && wrangler deploy -c wrangler.demo.jsonc",
     "e2e": "playwright test",
     "e2e:screenshots": "UPDATE_SCREENSHOTS=1 playwright test"
   },
