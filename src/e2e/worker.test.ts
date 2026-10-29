@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 // End to end: the Worker under `wrangler dev` (workerd), driven over HTTP.
 const HUMAN = "human-token-0123456789-abcdefghij";
 const AGENT = "agent-token-0123456789-abcdefghij";
+const ROBOT = "robot-token-0123456789-abcdefghij";
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 let workers: { server: ChildProcess; base: string }[] = [];
 let base = "";
@@ -45,7 +46,7 @@ async function start(attempts = 3): Promise<string> {
   let log = "";
   const server = spawn(
     "npx",
-    ["wrangler", "dev", "--port", String(port), "--ip", "127.0.0.1", "--inspector-port", String(port + 100), "--persist-to", persist, "--var", "SLIDES_REGION:unknown", "--var", `SLIDES_TOKENS:${HUMAN}=human:ada,${AGENT}=agent_of_human:bot`],
+    ["wrangler", "dev", "--port", String(port), "--ip", "127.0.0.1", "--inspector-port", String(port + 100), "--persist-to", persist, "--var", "SLIDES_REGION:unknown", "--var", `SLIDES_TOKENS:${HUMAN}=human:ada,${AGENT}=agent_of_human:bot,${ROBOT}=agent:robot`],
     { env: { ...process.env, WRANGLER_SEND_METRICS: "false", HOME: home, XDG_CONFIG_HOME: home, CI: "1" }, detached: true },
   );
   workers.push({ server, base: url });
@@ -170,21 +171,23 @@ describe("slides Worker API", () => {
   test("roles, invites, and links live in D1, and a restart keeps them", async () => {
     // The person makes a deck. The agent has no role yet, so it sees no deck.
     expect((await call("POST", "/decks", { token: HUMAN, body: { title: "Private", id: "private" } })).status).toBe(201);
-    expect((await call("GET", "/decks/private", { token: AGENT })).status).toBe(404);
-    const invite = await json(await call("POST", "/decks/private/invites", { token: HUMAN, body: { role: "viewer", handle: "bot" } }));
-    expect((await call("POST", "/invites/accept", { token: AGENT, body: { id: invite.id } })).status).toBe(200);
-    expect((await call("GET", "/decks/private", { token: AGENT })).status).toBe(200);
-    expect((await call("POST", "/decks/private/slides", { token: AGENT, body: { outline: "# No" } })).status).toBe(403);
+    expect((await call("GET", "/decks/private", { token: ROBOT })).status).toBe(404);
+    const invite = await json(await call("POST", "/decks/private/invites", { token: HUMAN, body: { role: "viewer", handle: "robot" } }));
+    // A delegated token has the name of an agent, but not its identity: it cannot accept.
+    expect((await call("POST", "/invites/accept", { token: AGENT, body: { id: invite.id } })).status).toBe(403);
+    expect((await call("POST", "/invites/accept", { token: ROBOT, body: { id: invite.id } })).status).toBe(200);
+    expect((await call("GET", "/decks/private", { token: ROBOT })).status).toBe(200);
+    expect((await call("POST", "/decks/private/slides", { token: ROBOT, body: { outline: "# No" } })).status).toBe(403);
     const link = await json(await call("POST", "/decks/private/links", { token: HUMAN, body: { role: "viewer" } }));
     for (const worker of workers.splice(0)) await stop(worker);
     base = await start();
     const visit = (token: string) => fetch(`${base}/api/v1/slides/shared/private`, { headers: { "x-link-token": token } });
     expect((await visit(link.token)).status).toBe(200);
-    expect((await call("GET", "/decks/private", { token: AGENT })).status).toBe(200);
+    expect((await call("GET", "/decks/private", { token: ROBOT })).status).toBe(200);
     expect((await call("DELETE", `/decks/private/links/${link.id}`, { token: HUMAN })).status).toBe(200);
     expect((await visit(link.token)).status).toBe(404);
-    expect((await call("DELETE", "/decks/private/grants?subjectKind=agent&subjectId=agent_of_human_bot", { token: HUMAN })).status).toBe(200);
-    expect((await call("GET", "/decks/private", { token: AGENT })).status).toBe(404);
-    expect((await call("GET", "/decks/private/access", { token: AGENT })).status).toBe(404);
+    expect((await call("DELETE", "/decks/private/grants?subjectKind=agent&subjectId=robot", { token: HUMAN })).status).toBe(200);
+    expect((await call("GET", "/decks/private", { token: ROBOT })).status).toBe(404);
+    expect((await call("GET", "/decks/private/access", { token: ROBOT })).status).toBe(404);
   }, 180_000);
 });

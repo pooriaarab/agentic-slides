@@ -147,11 +147,11 @@ A caller with no role on a deck gets the answer for a missing deck (404), and do
 A caller with a role that is too low gets 403. The role works with the token role: a `;viewer` token only reads, even for an owner.
 
 A token holds roles as a subject. `GET /me` shows it. A `human` token is the subject `human:<name>`. An `agent` token is `agent:<name>`.
-A token of another kind (for example `agent_of_human`) is the subject `agent:<kind>_<name>`.
+A token of another kind (for example `agent_of_human`) is the subject `agent:<kind>_<name>`. An `agent` token with a name that starts with a delegated kind and an underscore holds no role.
 
 | Route (owner only) | Does |
 | --- | --- |
-| `GET /decks/:deck/access?limit=&cursor=` | The grants, invites, and links of the deck. A link token and an invite email are never shown. |
+| `GET /decks/:deck/access?limit=&cursor=&inviteCursor=&linkCursor=` | The grants, invites, and links of the deck, one page of each. `nextCursor`, `nextInviteCursor`, and `nextLinkCursor` name the next pages. A link token and an invite email are never shown. |
 | `POST /decks/:deck/grants` | Give a role: `{"subjectKind":"human","subjectId":"bob","role":"editor"}`. |
 | `DELETE /decks/:deck/grants?subjectKind=&subjectId=` | Take a role away. The last owner stays. |
 | `POST /decks/:deck/invites` | Invite by `email` (a person) or `handle` (an agent): `{"role":"viewer","handle":"bot","expiresInMs":86400000}`. It sends no message. |
@@ -160,13 +160,17 @@ A token of another kind (for example `agent_of_human`) is the subject `agent:<ki
 
 | Route (any caller) | Does |
 | --- | --- |
-| `POST /invites/accept` | Accept an invite with `{"id":"..."}`. A token has no verified email, so this works for an invite by handle only. The handle is the token name. |
+| `POST /invites/accept` | Accept an invite with `{"id":"..."}`. A token has no verified email, so this works for an invite by handle only. Only an `agent` token can accept: a delegated token needs a grant. |
 | `GET /shared/:deck` | Read the outline with the link token in the `x-link-token` header. No bearer token is needed. |
 | `GET /shared/:deck/render?present=1` | The HTML page, with the same header. |
 
-A link gives read access only. A bad, revoked, or expired link gets 404. If you send a bearer token with a link, it must be valid.
+A link gives read access only. A bad, revoked, or expired link gets 404, unless you also send a bearer token that holds a role on the deck. A bearer token that you send must be valid.
 The Worker keeps the roles in the same D1 database as the decks. A deck made before sharing has no owner:
 it keeps the token role check, and the share routes answer 403 for it. `createApp` takes a `store` for this. Without it, no roles apply.
+
+A revoke closes the live room sockets of that caller. The room refuses that caller until a new grant. A grant of a lower role makes open sockets read only at once.
+`GET /decks` reads on until it fills the page with decks that the caller may see, so a caller with few roles can make a slow call. The scan stops after 2000 decks.
+Each access check writes one audit row. A check that runs while a deck is deleted can leave a row that blocks the id for a new deck (`DECK_EXISTS`). The operator clears it from the `audit` collection.
 
 ## UI
 

@@ -9,14 +9,24 @@ const ADA = "ada-token-0123456789-abcdefghijklmn";
 const BOB = "bob-token-0123456789-abcdefghijklmn";
 const BOT = "bot-token-0123456789-abcdefghijklmn";
 const EVE = "eve-token-0123456789-abcdefghijklmn";
+const CLASH = "clash-token-0123456789-abcdefghijkl";
 const VIEW = "view-token-0123456789-abcdefghijklm";
-const TOKENS = `${ADA}=human:ada,${BOB}=human:bob,${BOT}=agent:bot,${EVE}=agent_of_human:eve,${VIEW}=human:vic;viewer`;
+const TOKENS = `${ADA}=human:ada,${BOB}=human:bob,${BOT}=agent:bot,${EVE}=agent_of_human:eve,${VIEW}=human:vic;viewer,${CLASH}=agent:agent_of_human_eve`;
 const BASE = "http://slides.test/api/v1/slides";
 
 function setup() {
   const store = createMemoryStore();
   const service = createService({ store, blobs: createMemoryBlobs() });
-  const app = createApp({ service, auth: tokenAuth(parseTokens(TOKENS)), store });
+  // A room stub that records what the routes tell it.
+  const room: string[] = [];
+  const live = {
+    connect: async (id: string, _request: Request, grant: { principal: { id: string }; role: string }) => (room.push(`connect ${id} ${grant.principal.id} ${grant.role}`), new Response("joined", { status: 200 })),
+    revoke: async (id: string, who: string) => (room.push(`revoke ${id} ${who}`), { closed: 0, stored: true }),
+    updateRole: async (id: string, who: string, role: string | null) => (room.push(`role ${id} ${who} ${role}`), true),
+    erase: async (id: string) => (room.push(`erase ${id}`), { sockets: 0 }),
+    meta: async () => ({ updates: 0, compactions: 0, contributors: [] }),
+  };
+  const app = createApp({ service, auth: tokenAuth(parseTokens(TOKENS)), store, live: () => live as never });
   const call = async (method: string, path: string, init: { token?: string; body?: unknown; headers?: Record<string, string> } = {}) => {
     const response = await app.request(`${BASE}${path}`, {
       method,
@@ -26,7 +36,7 @@ function setup() {
     const text = await response.text();
     return { status: response.status, json: text.startsWith("{") ? JSON.parse(text) : undefined, text };
   };
-  return { call, service, store };
+  return { call, service, store, room, app };
 }
 const OUTLINE = { outline: "# Hello\n- one" };
 
@@ -241,6 +251,138 @@ describe("share links", () => {
     const { call, service } = setup();
     await service.create({ title: "Old", id: "old", author: { kind: "human", name: "ada" } });
     expect((await call("GET", "/shared/old", { headers: { "x-link-token": "anything" } })).status).toBe(404);
+  });
+});
+
+describe("review fixes", () => {
+  test("a list with no role gives no cursor of a deck that it hides", async () => {
+    const { call } = setup();
+    for (const id of ["one", "two", "three"]) await call("POST", "/decks", { token: ADA, body: { title: id, id } });
+    const page = await call("GET", "/decks?limit=1", { token: BOB });
+    expect(page.json).toEqual({ decks: [] });
+    // A caller with one role among hidden decks gets exactly that deck, and no cursor into the others.
+    await call("POST", "/decks/two/grants", { token: ADA, body: { subjectKind: "human", subjectId: "bob", role: "viewer" } });
+    const mixed = await call("GET", "/decks?limit=1", { token: BOB });
+    expect(mixed.json.decks.map((d: { id: string }) => d.id)).toEqual(["two"]);
+    // The cursor stands after the deck that it returned, never after one that Bob cannot see.
+    expect(JSON.parse(Buffer.from(mixed.json.nextCursor, "base64url").toString())[1]).toBe("two");
+    expect(mixed.text).not.toMatch(/three/);
+    // The owner pages through all three decks, and the cursors work.
+    const first = await call("GET", "/decks?limit=2", { token: ADA });
+    expect(first.json.decks).toHaveLength(2);
+    const rest = await call("GET", `/decks?limit=2&cursor=${encodeURIComponent(first.json.nextCursor)}`, { token: ADA });
+    expect(rest.json.decks).toHaveLength(1);
+  });
+
+  test("a deck id that has an owner record is refused, and no deck is made", async () => {
+    const { call, service, store } = setup();
+    await store.put("resources", "taken", { id: "taken", type: "deck" });
+    const made = await call("POST", "/decks", { token: BOB, body: { title: "Mine", id: "taken" } });
+    expect(made.status).toBe(409);
+    await expect(service.exists("taken")).rejects.toMatchObject({ code: "NO_DECK" });
+    expect((await call("POST", "/decks", { token: BOB, body: { title: "Mine", id: "bad id" } })).status).toBe(400);
+    expect((await call("POST", "/decks", { token: BOB, body: { title: "No id" } })).status).toBe(201);
+  });
+
+  test("two callers that make one id: one wins, and the owner is the winner", async () => {
+    const { call } = setup();
+    const both = await Promise.all([call("POST", "/decks", { token: ADA, body: { title: "A", id: "race" } }), call("POST", "/decks", { token: BOB, body: { title: "B", id: "race" } })]);
+    expect(both.map((r) => r.status).sort()).toEqual([201, 409]);
+    const winner = both[0]!.status === 201 ? ADA : BOB;
+    expect((await call("GET", "/decks/race/access", { token: winner })).status).toBe(200);
+  });
+
+  test("a delete that stopped after the deck can be finished by the owner", async () => {
+    const { call, service } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    await service.deleteDeck("plan", { kind: "human", name: "ada" });
+    expect((await call("DELETE", "/decks/plan", { token: BOB })).status).toBe(404);
+    expect((await call("DELETE", "/decks/plan", { token: ADA })).status).toBe(200);
+    expect((await call("DELETE", "/decks/plan", { token: ADA })).status).toBe(404);
+    expect((await call("POST", "/decks", { token: BOB, body: { title: "New", id: "plan" } })).status).toBe(201);
+  });
+
+  test("a revoke closes the room of that person, and a grant tells the room the new role", async () => {
+    const { call, room } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    const give = (subjectKind: string, subjectId: string, role: string) => call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind, subjectId, role } });
+    await give("human", "bob", "commenter");
+    await give("human", "bob", "editor");
+    await give("agent", "agent_of_human_eve", "viewer");
+    await call("DELETE", "/decks/plan/grants?subjectKind=human&subjectId=bob", { token: ADA });
+    await call("DELETE", "/decks/plan/grants?subjectKind=agent&subjectId=agent_of_human_eve", { token: ADA });
+    expect(room).toEqual([
+      "role plan human:bob viewer",
+      "role plan human:bob null",
+      "role plan agent:agent_of_human_eve viewer",
+      "role plan agent_of_human:eve viewer",
+      "revoke plan human:bob",
+      "revoke plan agent:agent_of_human_eve",
+      "revoke plan agent_of_human:eve",
+    ]);
+  });
+
+  test("a commenter and a viewer join the room as a viewer, and an editor as an editor", async () => {
+    const { app, call, room } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    for (const role of ["viewer", "commenter", "editor"]) {
+      await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "human", subjectId: "bob", role } });
+      room.length = 0;
+      const response = await app.request(`${BASE}/decks/plan/ws`, { headers: { authorization: `Bearer ${BOB}`, upgrade: "websocket" } });
+      expect(response.status, role).toBe(200);
+      expect(room, role).toEqual([`connect plan human:bob ${role === "editor" ? "editor" : "viewer"}`]);
+    }
+    expect((await app.request(`${BASE}/decks/plan/ws`, { headers: { authorization: `Bearer ${EVE}`, upgrade: "websocket" } })).status).toBe(404);
+  });
+
+  test("an editor cannot revoke a link, and a link of another deck is not revoked through this deck", async () => {
+    const { call } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "A", id: "a" } });
+    await call("POST", "/decks", { token: BOB, body: { title: "B", id: "b" } });
+    await call("POST", "/decks/a/grants", { token: ADA, body: { subjectKind: "human", subjectId: "bob", role: "editor" } });
+    const link = (await call("POST", "/decks/a/links", { token: ADA, body: { role: "viewer" } })).json;
+    expect((await call("DELETE", `/decks/a/links/${link.id}`, { token: BOB })).status).toBe(403);
+    // Bob owns b, not a. The link of a stays valid.
+    expect((await call("DELETE", `/decks/b/links/${link.id}`, { token: BOB })).status).toBe(403);
+    expect((await call("GET", "/shared/a", { headers: { "x-link-token": link.token } })).status).toBe(200);
+  });
+
+  test("a link visitor makes no audit row for an id that has no deck, or for a record that is not a deck", async () => {
+    const { call, store } = setup();
+    await store.put("resources", "file1", { id: "file1", type: "file" });
+    for (const id of ["ghost", "file1"]) expect((await call("GET", `/shared/${id}`, { headers: { "x-link-token": "x" } })).status).toBe(404);
+    expect((await store.query("audit", { limit: 10 })).items).toEqual([]);
+    expect((await call("GET", "/shared/ghost", { headers: { "x-link-token": "x" } })).status).toBe(404);
+  });
+
+  test("only an agent token accepts an invite by handle, and one agent name cannot take the subject of a delegated token", async () => {
+    const { call } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    const { id } = (await call("POST", "/decks/plan/invites", { token: ADA, body: { role: "editor", handle: "eve" } })).json;
+    // `agent_of_human:eve` has the name of the handle, but not the identity of an agent.
+    expect((await call("POST", "/invites/accept", { token: EVE, body: { id } })).status).toBe(403);
+    expect((await call("GET", "/decks/plan", { token: EVE })).status).toBe(404);
+    // The token `agent:agent_of_human_eve` would share the subject of `agent_of_human:eve`, so it holds no role at all.
+    expect((await call("GET", "/me", { token: CLASH })).json.subject).toBeNull();
+    await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "agent", subjectId: "agent_of_human_eve", role: "editor" } });
+    expect((await call("GET", "/decks/plan", { token: CLASH })).status).toBe(404);
+    expect((await call("POST", "/decks", { token: CLASH, body: { title: "x" } })).status).toBe(403);
+  });
+
+  test("access pages through grants, invites, and links", async () => {
+    const { call } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    for (const n of [1, 2, 3]) {
+      await call("POST", "/decks/plan/invites", { token: ADA, body: { role: "viewer", handle: `bot${n}` } });
+      await call("POST", "/decks/plan/links", { token: ADA, body: { role: "viewer" } });
+      await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "human", subjectId: `kit${n}`, role: "viewer" } });
+    }
+    const first = (await call("GET", "/decks/plan/access?limit=2", { token: ADA })).json;
+    expect([first.grants.length, first.invites.length, first.links.length]).toEqual([2, 2, 2]);
+    const second = (await call("GET", `/decks/plan/access?limit=2&cursor=${encodeURIComponent(first.nextCursor)}&inviteCursor=${encodeURIComponent(first.nextInviteCursor)}&linkCursor=${encodeURIComponent(first.nextLinkCursor)}`, { token: ADA })).json;
+    expect([second.grants.length, second.invites.length, second.links.length]).toEqual([2, 1, 1]);
+    const ids = new Set([...first.links, ...second.links].map((l: { id: string }) => l.id));
+    expect(ids.size).toBe(3);
   });
 });
 

@@ -4,11 +4,12 @@ import { z } from "zod";
 import { COMMAND } from "./brand.js";
 import type { Realtime } from "agentic-realtime";
 import { acceptWebSocketProtocol, principalFromWebSocketRequest } from "agentic-identity/http";
-import { ROLES, createSharing, type Auth, type Json, type PrincipalContext, type Store } from "agentic-identity";
-import { DECK, DECK_ID, contextOf, subjectOf } from "./access.js";
+import { EraseRefusedError, ROLES, StoreConflictError, createSharing, type Auth, type Json, type PrincipalContext, type Store } from "agentic-identity";
+import { DECK, DECK_ID, contextOf, roomPrincipals, subjectOf } from "./access.js";
 import { ConfigError, type Authenticator, type Caller, type SlidesRole } from "./auth.js";
 import { SlidesError, fail, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
 import { toBase64 } from "./bytes.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { CSP } from "./render/html.js";
 import { PRESENT_CSP } from "./render/present.js";
 import { decodeImages, images, patch } from "./schemas.js";
@@ -58,7 +59,7 @@ const body = {
   grant: z.object({ subjectKind: z.enum(["human", "agent"]), subjectId: z.string().min(1).max(128), role: z.enum(ROLES) }),
   invite: z.object({ role: z.enum(ROLES), email: z.string().max(320).optional(), handle: z.string().max(128).optional(), expiresInMs: z.number().int().positive().optional() }),
   link: z.object({ role: z.enum(ROLES), expiresInMs: z.number().int().positive().optional(), signedInOnly: z.boolean().optional() }),
-  access: z.object({ limit: z.coerce.number().int().min(1).max(200).optional(), cursor: z.string().min(1).max(2000).optional() }),
+  access: z.object({ limit: z.coerce.number().int().min(1).max(200).optional(), cursor: z.string().min(1).max(2000).optional(), inviteCursor: z.string().min(1).max(2000).optional(), linkCursor: z.string().min(1).max(2000).optional() }),
   accept: z.object({ id: z.string().min(1).max(128) }),
 };
 
@@ -71,11 +72,17 @@ async function viaSharing<T>(run: () => Promise<T>): Promise<T> {
     if (!(error instanceof Error) || error instanceof SlidesError) throw error;
     if (error.message === "forbidden") return fail("FORBIDDEN", "This caller may not do this.");
     if (error.message === "resource exists") return fail("DECK_EXISTS", "This deck id has an owner already.");
+    if (error.message === "resource id has old audit entries") return fail("DECK_EXISTS", "An old record blocks this deck id. Use another id, or ask the operator to clear it.");
+    if (error instanceof EraseRefusedError) return fail("INVALID_SHARE", error.message);
+    if (error instanceof StoreConflictError) return fail("STORE_BUSY", "another writer changed the deck. Try again");
     if (error instanceof RangeError || SHARE_ERROR.test(error.message)) return fail("INVALID_SHARE", error.message);
     throw error;
   }
 }
 
+/** The most decks that one list call reads while it looks for decks that the caller may see. */
+const MAX_SCANNED = 2000;
+const DEFAULT_LISTED = 50;
 const SHARE_ROUTE = /\/decks\/[^/]+\/(access|grants|invites|links)(\/|$)/;
 const ROOM_ROUTE = /\/decks\/[^/]+\/ws$/;
 /** The WebSocket subprotocol of this app. A browser also offers `agentic-slides.bearer.<token>`, which holds the token. */
@@ -206,41 +213,60 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
 
   api.post("/decks", async (c) => {
     const input = body.create.parse(await c.req.json());
-    const ctx = sharing && contextFor(c);
-    const made = await service.create({ ...input, author: c.get("author") });
-    if (sharing && ctx) {
-      // The creator owns the deck. If that fails, the deck goes too, so no deck stays open to every editor.
-      try {
-        await viaSharing(() => sharing.createResource(ctx, { id: made.id, type: DECK }));
-      } catch (error) {
-        await service.deleteDeck(made.id, c.get("author")).catch(() => undefined);
-        throw error;
-      }
+    const author = c.get("author");
+    if (!sharing) return c.json(await service.create({ ...input, author }), 201);
+    // The owner record comes first, so the deck is never open to every editor, not even for a moment. One caller wins a race for an id.
+    const ctx = contextFor(c);
+    const id = input.id ?? `d${bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(5)))}`;
+    if (!DECK_ID.test(id)) return fail("INVALID_ID", `"${id}" is not a valid deck id`);
+    // A deck that exists already is not claimed here: a deck made before sharing keeps no owner.
+    if (await service.exists(id).then(() => true, (error: unknown) => (error instanceof SlidesError && error.code === "NO_DECK" ? false : Promise.reject(error)))) {
+      return fail("DECK_EXISTS", `deck "${id}" exists`);
     }
-    return c.json(made, 201);
+    await viaSharing(() => sharing.createResource(ctx, { id, type: DECK }));
+    try {
+      await service.create({ ...input, id, author });
+    } catch (error) {
+      await sharing.deleteResource(ctx, id).catch(() => undefined);
+      throw error;
+    }
+    return c.json({ id }, 201);
   });
   api.get("/decks", async (c) => {
-    const { limit, cursor } = body.page.parse({ limit: c.req.query("limit"), cursor: c.req.query("cursor") });
-    const page = await service.list({ limit, cursor });
-    if (!sharing || !store) return c.json(page);
-    // A deck with an owner shows only to a caller with a role. The page can be short while `nextCursor` stays.
+    const { limit = DEFAULT_LISTED, cursor } = body.page.parse({ limit: c.req.query("limit"), cursor: c.req.query("cursor") });
+    if (!sharing || !store) return c.json(await service.list({ limit, cursor }));
+    // A deck with an owner shows only to a caller with a role. A page is filled from later pages, and the cursor is the one after the last deck that it returns.
+    // A caller then never gets the cursor of a deck that it cannot see, unless the scan stops at its limit (see `MAX_SCANNED`).
     const ctx = contextOf(callerOf(c));
-    const decks: typeof page.decks = [];
-    for (const deck of page.decks) {
-      const owned = await store.get<{ type?: string }>("resources", deck.id);
-      if (!owned || (owned.type === DECK && ctx && (await sharing.can(ctx, "read", deck.id)).allowed)) decks.push(deck);
+    const decks: Awaited<ReturnType<Service["list"]>>["decks"] = [];
+    let scanned = 0;
+    let next: string | undefined = cursor;
+    for (;;) {
+      const page = await service.list({ limit: limit - decks.length, cursor: next });
+      scanned += page.decks.length;
+      for (const deck of page.decks) {
+        const owned = await store.get<{ type?: string }>("resources", deck.id);
+        if (!owned || (owned.type === DECK && ctx && (await sharing.can(ctx, "read", deck.id)).allowed)) decks.push(deck);
+      }
+      next = page.nextCursor;
+      if (decks.length >= limit || next === undefined || scanned >= MAX_SCANNED) break;
     }
-    return c.json({ ...page, decks });
+    return c.json({ decks, ...(next === undefined ? {} : { nextCursor: next }) });
   });
   api.delete("/decks/:deck", async (c) => {
     const id = c.req.param("deck");
-    // Clear the live room first: it keeps the deck state, and a new deck with the same id must not read it. A missing deck is a 404 before this.
-    await service.exists(id);
-    if (live) await live(c.env).erase(id);
-    await service.deleteDeck(id, c.get("author"));
-    // The deck is gone. Erase its roles, links, and invites, so a new deck with the same id starts clean.
     const ctx = sharing && contextOf(callerOf(c));
-    if (sharing && ctx && (await store!.get("resources", id))) await viaSharing(() => sharing.deleteResource(ctx, id));
+    // A deck can be gone while its owner record stays, after a failed delete. The owner can finish the erase.
+    const gone = await service.exists(id).then(() => false, (error: unknown) => (error instanceof SlidesError && error.code === "NO_DECK" ? true : Promise.reject(error)));
+    const owned = Boolean(sharing && ctx && store && DECK_ID.test(id) && (await store.get("resources", id)));
+    if (gone && !owned) await service.exists(id);
+    if (!gone) {
+      // Clear the live room first: it keeps the deck state, and a new deck with the same id must not read it.
+      if (live) await live(c.env).erase(id);
+      await service.deleteDeck(id, c.get("author"));
+    }
+    // The deck is gone. Erase its roles, links, and invites, so a new deck with the same id starts clean.
+    if (sharing && ctx && owned) await viaSharing(() => sharing.deleteResource(ctx, id));
     return c.json({ ok: true });
   });
   api.get("/decks/:deck", async (c) => c.json(await service.outline(c.req.param("deck"))));
@@ -289,27 +315,41 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
   const lifetime = (ms: number | undefined) => (ms === undefined ? {} : { expiresAt: Date.now() + ms });
   api.get("/decks/:deck/access", async (c) => {
     const id = c.req.param("deck");
-    const { limit, cursor } = body.access.parse({ limit: c.req.query("limit"), cursor: c.req.query("cursor") });
+    const { limit, cursor, inviteCursor, linkCursor } = body.access.parse({ limit: c.req.query("limit"), cursor: c.req.query("cursor"), inviteCursor: c.req.query("inviteCursor"), linkCursor: c.req.query("linkCursor") });
     const share = needSharing();
     const ctx = contextFor(c);
     const grants = await viaSharing(() => share.listGrants(ctx, id, { limit, cursor }));
-    const invites = await viaSharing(() => share.listInvites(ctx, id, { limit }));
+    const invites = await viaSharing(() => share.listInvites(ctx, id, { limit, cursor: inviteCursor }));
     // A link token is never shown: the store keeps only its hash.
-    const links = (await store!.query<Record<string, Json>>("links", { where: { resourceId: id }, limit: 100 })).items.map(({ data: l }) => ({
-      id: l.id, role: l.role, signedInOnly: l.signedInOnly === true, expiresAt: l.expiresAt ?? null, revoked: l.revokedAt != null,
-    }));
-    return c.json({ grants: grants.grants, invites: invites.invites, links, ...(grants.nextCursor === undefined ? {} : { nextCursor: grants.nextCursor }), ...(invites.nextCursor === undefined ? {} : { nextInviteCursor: invites.nextCursor }) });
+    const links = await viaSharing(() => store!.query<Record<string, Json>>("links", { where: { resourceId: id }, limit: limit ?? 50, ...(linkCursor === undefined ? {} : { cursor: linkCursor }) }));
+    return c.json({
+      grants: grants.grants,
+      invites: invites.invites,
+      links: links.items.map(({ data: l }) => ({ id: l.id, role: l.role, signedInOnly: l.signedInOnly === true, expiresAt: l.expiresAt ?? null, revoked: l.revokedAt != null })),
+      ...(grants.nextCursor === undefined ? {} : { nextCursor: grants.nextCursor }),
+      ...(invites.nextCursor === undefined ? {} : { nextInviteCursor: invites.nextCursor }),
+      ...(links.nextCursor === undefined ? {} : { nextLinkCursor: links.nextCursor }),
+    });
   });
   api.post("/decks/:deck/grants", async (c) => {
     const input = body.grant.parse(await c.req.json());
     const share = needSharing();
-    await viaSharing(() => share.grant(contextFor(c), c.req.param("deck"), { kind: input.subjectKind, id: input.subjectId }, input.role));
+    const id = c.req.param("deck");
+    const subject = { kind: input.subjectKind, id: input.subjectId };
+    await viaSharing(() => share.grant(contextFor(c), id, subject, input.role));
+    // An open room keeps the role from connect time. The new role reaches it now. A lower role caps the sockets, and the room drops their writes.
+    // A role that can write lifts the cap or the ban that an earlier change left.
+    if (live) for (const who of roomPrincipals(subject)) await live(c.env).updateRole(id, who, input.role === "owner" || input.role === "editor" ? null : "viewer");
     return c.json({ ok: true });
   });
   api.delete("/decks/:deck/grants", async (c) => {
     const input = body.grant.omit({ role: true }).parse({ subjectKind: c.req.query("subjectKind"), subjectId: c.req.query("subjectId") });
     const share = needSharing();
-    await viaSharing(() => share.revokeGrant(contextFor(c), c.req.param("deck"), { kind: input.subjectKind, id: input.subjectId }));
+    const id = c.req.param("deck");
+    const subject = { kind: input.subjectKind, id: input.subjectId };
+    await viaSharing(() => share.revokeGrant(contextFor(c), id, subject));
+    // The revoked caller leaves an open room at once, and the room refuses it until a grant lifts the ban.
+    if (live) for (const who of roomPrincipals(subject)) await live(c.env).revoke(id, who);
     return c.json({ ok: true });
   });
   // An invite sends no message. The owner gives the id to the person or the agent.
@@ -333,6 +373,8 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
   api.post("/invites/accept", async (c) => {
     const { id } = body.accept.parse(await c.req.json());
     const share = needSharing();
+    // Only an agent with its own identity holds a handle. A delegated token has the name of its agent, but not its identity.
+    if (c.get("author").kind !== "agent") return fail("FORBIDDEN", "Only an agent token can accept an invite by handle.");
     await viaSharing(() => share.acceptInvite(contextFor(c), id, { handle: c.get("author").name }));
     return c.json({ ok: true });
   });
@@ -349,7 +391,9 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
       ctx = contextOf(caller);
     }
     const gone = c.json(failure("NO_DECK", `no deck "${id}"`), 404);
-    if (!sharing || !token || !DECK_ID.test(id)) return gone;
+    if (!sharing || !store || !token || !DECK_ID.test(id)) return gone;
+    // An id with no deck record gets no check, so a caller with no token cannot make audit rows for ids that never existed.
+    if ((await store.get<{ type?: string }>("resources", id))?.type !== DECK) return gone;
     return (await sharing.can(ctx, "read", id, { linkToken: token })).allowed ? { id } : gone;
   };
   shared.get("/:deck", async (c) => {
