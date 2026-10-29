@@ -1,7 +1,7 @@
 // Decks hold no roles of their own. A host that shares a deck through agentic-identity keys each grant on
-// the principal kind and the id, and erases the grants with the deck. These tests pin both, on the same
-// Store a deck service uses.
-import { createMemoryBlobs, createMemoryStore, createSharing, type PrincipalContext } from "agentic-identity";
+// the principal kind and the id, and erases the grants with the deck. These tests pin both, against an
+// in-memory Store. The second test shares that Store with a deck service.
+import { createMemoryBlobs, createMemoryStore, createSharing, migrateGrants, type PrincipalContext } from "agentic-identity";
 import { describe, expect, it } from "vitest";
 import { createService } from "./service.js";
 
@@ -31,6 +31,7 @@ describe("sharing with agentic-identity 0.4", () => {
     await sharing.createResource(owner, { id, type: "deck" });
     await sharing.grant(owner, id, { kind: "human", id: "kit" }, "editor");
     await sharing.grant(owner, id, { kind: "agent", id: "kit" }, "viewer");
+    // The owner grant from `createResource` counts as the first of the three.
     expect((await sharing.listGrants(owner, id)).grants).toHaveLength(3);
 
     await sharing.deleteResource(owner, id);
@@ -42,5 +43,21 @@ describe("sharing with agentic-identity 0.4", () => {
     await sharing.createResource(ctx("bo", "human"), { id, type: "deck" });
     const grants = (await sharing.listGrants(ctx("bo", "human"), id)).grants;
     expect(grants.map((g) => `${g.subjectKind}:${g.subjectId}:${g.role}`)).toEqual(["human:bo:owner"]);
+  });
+
+  it("moves a grant stored under an old key with migrateGrants", async () => {
+    const store = createMemoryStore();
+    const sharing = createSharing(store);
+    // A 0.2 store keyed the owner grant `<resource>:<id>` and had no subject kind.
+    await store.put("resources", "plan", { id: "plan", type: "deck" });
+    await store.put("principals", "ana", { kind: "human" });
+    await store.put("grants", "plan:ana", { resourceId: "plan", subjectId: "ana", role: "owner" });
+    expect((await sharing.can(ctx("ana", "human"), "read", "plan")).allowed).toBe(false);
+
+    await expect(migrateGrants(store)).resolves.toEqual({ migrated: 1, unresolved: [] });
+
+    expect((await sharing.can(ctx("ana", "human"), "write", "plan")).role).toBe("owner");
+    expect((await sharing.can(ctx("ana", "agent"), "read", "plan")).allowed).toBe(false);
+    await expect(migrateGrants(store)).resolves.toEqual({ migrated: 0, unresolved: [] });
   });
 });

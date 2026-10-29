@@ -8,10 +8,13 @@ This file lists the notable changes to this project, by version.
 
 - `agentic-identity` is ^0.4.0 in this release. A grant belongs to a kind and an id. A person and an agent
   with the same id hold separate roles. A grant that a host made under an old key is not used. This
-  includes the owner role, so a deck shared through the old keys has no owner after the upgrade. There
-  is no migration. This package makes no grant. Its roles come from `SLIDES_TOKENS`. It has no command
-  that deletes a deck. A host that shares decks must call `deleteResource` when it deletes one. If the
-  call fails, the host must run it again until it completes.
+  includes the owner role, so a deck shared through the old keys has no owner until you move the grants. There
+  is no migration in this package. Before you serve requests, run `migrateGrants(store)` from
+  `agentic-identity` on the store. It moves each old grant to the new key. It lists the grants that it
+  cannot move in `unresolved`. A grant that is not moved is not used. This package makes no grant. Its
+  roles come from `SLIDES_TOKENS`. It has no command that deletes a deck. A host that shares decks must
+  call `deleteResource` when it deletes one. After a store error, the host runs the call again. After
+  `EraseRefusedError`, the host first removes the children or some owners.
 - The Worker entry is now `src/live-worker.ts`. `wrangler.jsonc` adds the `SYNC_ROOM` Durable Object
   binding and its `v1` migration. Deploy with the new `wrangler.jsonc`. A Worker that lacks the
   binding cannot serve live rooms, and `POST /decks/:deck/checkpoint` fails with a server error.
