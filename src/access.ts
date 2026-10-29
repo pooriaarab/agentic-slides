@@ -1,5 +1,6 @@
 import { PRINCIPAL_KINDS, SUBJECT_KINDS, type PrincipalContext, type Subject } from "agentic-identity";
 import type { Caller } from "./auth.js";
+import { fail, type Principal } from "./core/principal.js";
 
 /** The sharing resource type of a deck. */
 export const DECK = "deck";
@@ -31,11 +32,24 @@ export function subjectOf(caller: Caller): Subject | null {
  * so a change of role reaches every socket of these ids.
  */
 export function roomPrincipals(subject: Subject): string[] {
-  if (subject.kind === "human") return [`human:${subject.id}`];
+  return principalsOf(subject).map(({ kind, name }) => `${kind}:${name}`);
+}
+
+/** The authors (`kind` and `name`) that a subject stands for in a deck: the subject itself and, for an agent, each delegated token that has its name. */
+export function principalsOf(subject: Subject): Principal[] {
+  if (subject.kind === "human") return [{ kind: "human", name: subject.id }];
   return [
-    `agent:${subject.id}`,
-    ...DELEGATED_KINDS.filter((kind) => subject.id.startsWith(`${kind}_`)).map((kind) => `${kind}:${subject.id.slice(kind.length + 1)}`),
+    { kind: "agent", name: subject.id },
+    ...DELEGATED_KINDS.filter((kind) => subject.id.startsWith(`${kind}_`)).map((kind) => ({ kind, name: subject.id.slice(kind.length + 1) }) as Principal),
   ];
+}
+
+/** Check a subject that comes from a host: a known kind and a safe id. It returns a copy. An `agent` id that starts with a delegated kind covers that delegated token too, as in `principalsOf`. */
+export function checkSubject(subject: Subject): Subject {
+  const { kind, id } = (subject ?? {}) as Partial<Subject>;
+  const known = (SUBJECT_KINDS as readonly unknown[]).includes(kind);
+  if (!known || typeof id !== "string" || !SAFE_SUBJECT.test(id)) fail("INVALID_AUTHOR", "subject needs a known kind and a safe id");
+  return { kind: kind!, id: id! };
 }
 
 /**

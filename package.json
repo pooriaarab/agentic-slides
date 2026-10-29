@@ -1,6 +1,6 @@
 {
   "name": "agentic-slides",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Build and present slide decks with people and agents.",
   "keywords": [
     "slides",
@@ -54,6 +54,10 @@
     "./formats": {
       "types": "./dist/formats.d.ts",
       "import": "./dist/formats.js"
+    },
+    "./account": {
+      "types": "./dist/account.d.ts",
+      "import": "./dist/account.js"
     },
     "./ui": {
       "types": "./dist/embed.d.ts",

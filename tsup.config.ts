@@ -13,6 +13,7 @@ export default defineConfig({
     client: "src/client.ts",
     formats: "src/formats.ts",
     embed: "ui/embed.tsx",
+    account: "src/account.ts",
   },
   format: ["esm"],
   dts: true,
