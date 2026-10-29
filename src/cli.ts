@@ -189,11 +189,11 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
     return 0;
   }
   // `mcp --help` and `mcp --version` answer before the server starts.
-  if (command === "mcp" && (rest[0] === "--help" || rest[0] === "-h")) {
+  if (command === "mcp" && rest.some((word) => word === "--help" || word === "-h")) {
     console.log(HELP);
     return 0;
   }
-  if (command === "mcp" && (rest[0] === "--version" || rest[0] === "-V")) {
+  if (command === "mcp" && rest.some((word) => word === "--version" || word === "-V")) {
     console.log(VERSION);
     return 0;
   }
