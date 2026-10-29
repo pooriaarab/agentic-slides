@@ -35,7 +35,7 @@ afterAll(async () => {
 describe("slides MCP server", () => {
   test("lists the tools that mirror the CLI", async () => {
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(["add_slides", "create_deck", "delete_slide", "edit_element", "export_pdf", "move_slide", "read_outline", "render_deck", "set_slide"]);
+    expect(names).toEqual(["add_slides", "create_deck", "delete_slide", "edit_element", "export_pdf", "list_decks", "move_slide", "read_outline", "render_deck", "set_slide"]);
   });
 
   test("edits a deck that the CLI made, and labels every edit as an agent's", async () => {
@@ -51,6 +51,15 @@ describe("slides MCP server", () => {
     expect((await call("delete_slide", { deck: "shared", slide: 1 })).isError).toBe(false);
     expect((await call("set_slide", { deck: "shared", slide: 1, outline: "# Three" })).isError).toBe(false);
     expect((await call("add_slides", { deck: "shared", layout: "blank" })).isError).toBe(false);
+  });
+
+  test("lists decks, and refuses a bad page", async () => {
+    const listed = await call("list_decks", {});
+    expect(listed.isError).toBe(false);
+    expect(listed.body.decks.map((d: any) => d.id)).toContain("shared");
+    expect(listed.body.decks.find((d: any) => d.id === "shared")).toMatchObject({ title: "Shared", machineMade: true });
+    expect((await call("list_decks", { limit: 0 })).body.error.code).toBe("BAD_PATCH");
+    expect((await call("list_decks", { cursor: "bad" })).isError).toBe(true);
   });
 
   test("a failed call is an error result with the issue list, never a success", async () => {

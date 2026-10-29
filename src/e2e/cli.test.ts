@@ -56,6 +56,24 @@ describe("slides CLI", () => {
     expect(run(["export", "x", "--out", "a.odp", "--format", "odp"]).code).toBe(2);
   });
 
+  test("lists decks as JSON, newest edit first, and pages with a cursor", () => {
+    const dir = ["--dir", join(work, ".list")];
+    expect(json(run(["list", ...dir]).out)).toEqual({ decks: [] });
+    run(["new", "First", "--id", "one", "--as", AGENT, ...dir]);
+    run(["new", "Second", "--id", "two", "--as", "human:ada", ...dir]);
+    const all = json(run(["list", ...dir]).out);
+    expect(all.decks.map((d: any) => d.id).sort()).toEqual(["one", "two"]);
+    expect(all.decks.find((d: any) => d.id === "one")).toMatchObject({ title: "First", machineMade: true, editedBy: { kind: "agent_of_human", name: "writer-bot" } });
+    const first = json(run(["list", "--limit", "1", ...dir]).out);
+    expect(first.decks).toHaveLength(1);
+    const next = json(run(["list", "--limit", "1", "--cursor", first.nextCursor, ...dir]).out);
+    expect(next.decks).toHaveLength(1);
+    expect(next.decks[0].id).not.toBe(first.decks[0].id);
+    expect(run(["list", "--limit", "many", ...dir]).code).toBe(2);
+    expect(json(run(["list", "--limit", "0", ...dir]).err).error.code).toBe("BAD_PATCH");
+    expect(json(run(["list", "--cursor", "bad", ...dir]).err).error.code).toBe("BAD_PATCH");
+  });
+
   test("a deck id cannot reach outside the store", () => {
     for (const id of ["../x", "a/b", ".hidden"]) expect(json(run(["outline", id]).err).error.code).toBe("INVALID_ID");
     expect(json(run(["outline", "nope"]).err).error.code).toBe("NO_DECK");

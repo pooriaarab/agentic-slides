@@ -48,6 +48,13 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
     }) as never);
 
   tool("create_deck", "Create an empty deck. Returns its id.", { title: z.string(), id: z.string().optional() }, edit, (a) => service.create({ ...a, author }));
+  tool(
+    "list_decks",
+    "List decks, newest edit first, with the last editor of each. Pass nextCursor of one page as cursor to read the next page.",
+    { limit: z.number().optional().describe("The most decks to return, from 1 to 200."), cursor: z.string().optional() },
+    read,
+    (a) => service.list(a),
+  );
   tool("read_outline", "Read a deck as structured JSON: slides, elements, notes, theme, and who edited what.", { deck }, read, (a) => service.outline(a.deck));
   tool(
     "add_slides",
