@@ -44,7 +44,7 @@ npx agentic-slides render plan --present --out deck.html
 npx agentic-slides export plan --out deck.pdf
 ```
 
-Decks live in `.slides/` (or `--dir`, or `$SLIDES_DIR`). Also: `list`, `move`, `delete`, and `edit --outline`.
+Decks live in `.slides/` (or `--dir`, or `$SLIDES_DIR`). Also: `list`, `move`, `delete` (a slide), `delete-deck`, and `edit --outline`.
 Run `npx agentic-slides --help` for all flags.
 
 ### Join a live room
@@ -67,7 +67,7 @@ Images are not available in a live room yet: use the HTTP API to add them.
 ## MCP server
 
 Run `npx agentic-slides mcp`. The tools are `create_deck`, `list_decks`, `read_outline`, `add_slides`,
-`set_slide`, `edit_element`, `move_slide`, `delete_slide`, `render_deck`, and `export_pdf`.
+`set_slide`, `edit_element`, `move_slide`, `delete_slide`, `delete_deck`, `render_deck`, and `export_pdf`.
 The server sets the author of every edit: `agent`, or the `SLIDES_AUTHOR` value. A model cannot
 claim to be a human, and the server refuses to start with a `human` author. A failed call returns an error result with the issue list.
 

@@ -119,6 +119,8 @@ export function createClient({ baseUrl, token, fetch: send = (...args) => global
       return json<{ decks: DeckSummary[]; nextCursor?: string }>(call("GET", `/decks${query.size ? `?${query}` : ""}`, options));
     },
     createDeck: (input: { title: string; id?: string }, options: CallOptions = {}) => json<{ id: string }>(call("POST", "/decks", { ...options, body: input })),
+    /** Delete the deck and its list entry. */
+    deleteDeck: (deck: string, options: CallOptions = {}) => done(call("DELETE", `/decks/${seg(deck)}`, options)),
     outline: (deck: string, options: CallOptions = {}) => json<DeckOutline>(call("GET", `/decks/${seg(deck)}`, options)),
     addSlides: (deck: string, input: AddSlidesInput, options: CallOptions = {}) =>
       json<{ slideIds: string[] }>(call("POST", `/decks/${seg(deck)}/slides`, { ...options, body: { ...input, images: encodeImages(input.images) } })),

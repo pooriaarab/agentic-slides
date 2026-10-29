@@ -79,6 +79,7 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
   );
   tool("move_slide", "Move a slide to a 1-based position.", { deck, slide, to: z.number() }, edit, async (a) => (await service.moveSlide(a.deck, a.slide, a.to, author), { ok: true }));
   tool("delete_slide", "Delete a slide.", { deck, slide }, { readOnlyHint: false, destructiveHint: true, openWorldHint: false }, async (a) => (await service.deleteSlide(a.deck, a.slide, author), { ok: true }));
+  tool("delete_deck", "Delete a whole deck and its list entry. This cannot be undone.", { deck }, { readOnlyHint: false, destructiveHint: true, openWorldHint: false }, async (a) => (await service.deleteDeck(a.deck, author), { ok: true }));
   tool("render_deck", "Render the deck as one self-contained HTML page. Pass present for the present page.", { deck, present: z.boolean().optional() }, read, async (a) => ({ html: await service.render(a.deck, { present: a.present }) }));
   tool("export_pdf", "Export the deck as a PDF. Returns it as base64, with warnings.", { deck }, read, async (a) => {
     const { bytes, warnings } = await service.exportPdf(a.deck);

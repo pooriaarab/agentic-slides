@@ -154,6 +154,10 @@ export function createApp({ service, auth, live, principals = [] }: AppDeps) {
     const { limit, cursor } = body.page.parse({ limit: c.req.query("limit"), cursor: c.req.query("cursor") });
     return c.json(await service.list({ limit, cursor }));
   });
+  api.delete("/decks/:deck", async (c) => {
+    await service.deleteDeck(c.req.param("deck"), c.get("author"));
+    return c.json({ ok: true });
+  });
   api.get("/decks/:deck", async (c) => c.json(await service.outline(c.req.param("deck"))));
   api.post("/decks/:deck/slides", async (c) => {
     const input = body.add.parse(await c.req.json());
