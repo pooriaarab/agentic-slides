@@ -9,8 +9,8 @@ This file lists the notable changes to this project, by version.
 - The Worker entry is now `src/live-worker.ts`. `wrangler.jsonc` adds the `SYNC_ROOM` Durable Object
   binding and its `v1` migration. Deploy with the new `wrangler.jsonc`. A Worker that lacks the
   binding cannot serve live rooms, and `POST /decks/:deck/checkpoint` fails with a server error.
-- The token setting `SLIDES_TOKENS` reads the text after the last `;` as the role. A principal can
-  no longer hold a `;`. The Worker refuses an entry such as `human:a;b` with a configuration error.
+- The token setting `SLIDES_TOKENS` reads the text after the last `;` as the role. The role must be
+  `editor` or `viewer`. The Worker refuses an entry such as `human:a;b` with a configuration error.
   An entry such as `human:ada;viewer` is no longer an editor named `ada;viewer`. It is a viewer
   named `ada`. An entry such as `human:ada;editor` is now named `ada`. Check the entries before you
   deploy.
