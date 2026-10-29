@@ -10,6 +10,7 @@ No change to the HTTP API, the SDK, the CLI, or the MCP server breaks a current 
 
 - Run `npm run build` before `wrangler deploy` or `wrangler dev`. Without `dist/ui`, Wrangler stops with an error
   that names `assets.directory`. See "Changed".
+- When the Worker config serves `dist/ui`, `GET /` answers with the UI page, not with a JSON 404. See "Changed".
 
 ### Added
 
@@ -22,7 +23,7 @@ No change to the HTTP API, the SDK, the CLI, or the MCP server breaks a current 
 
 ### Changed
 
-- `GET /` answers with the UI page. Before, it answered with the JSON `NOT_FOUND` error. A monitor that expects a 404 at `/` now gets the page.
+- When `wrangler.jsonc` serves `dist/ui`, `GET /` answers with the UI page. Before, it answered with the JSON `NOT_FOUND` error. A monitor that expects a 404 at `/` now gets the page.
 - `wrangler.jsonc` serves the UI from `./dist/ui` as static assets. Run `npm run build` before `wrangler deploy`,
   so that `dist/ui` exists to serve.
 - `npm run build` also bundles the UI. `prepack` runs it, so the npm package has `dist/ui`.
