@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -110,7 +110,7 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
       await startMcp({ dir, author: named ? parsePrincipal(named) : undefined });
       return 0;
     }
-    const service = createService({ store: createFileStore(dir), blobs: createFileBlobs(dir) });
+    const service = createService({ store: createFileStore(dir), blobs: createFileBlobs(join(dir, "blobs")) });
     const print = (value: unknown) => console.log(JSON.stringify(value));
     switch (command) {
       case "new":

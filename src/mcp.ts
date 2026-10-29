@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { toBase64 } from "./bytes.js";
@@ -80,6 +81,6 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
 
 export async function startMcp(options: { dir?: string; author?: Principal } = {}): Promise<void> {
   const dir = options.dir ?? process.env.SLIDES_DIR ?? ".slides";
-  const service = createService({ store: createFileStore(dir), blobs: createFileBlobs(dir) });
+  const service = createService({ store: createFileStore(dir), blobs: createFileBlobs(join(dir, "blobs")) });
   await createMcpServer({ service, author: options.author }).connect(new StdioServerTransport());
 }
