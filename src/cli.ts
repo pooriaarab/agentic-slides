@@ -8,6 +8,7 @@ import { COMMAND, DESCRIPTION } from "./brand.js";
 import { imagePaths } from "./core/outline.js";
 import { PRINCIPAL_KINDS, SlidesError, fail, parsePrincipal, type Principal } from "./core/principal.js";
 import { DEFAULT_LIMITS } from "./export/limits.js";
+import { SlidesApiError, createClient, type Role, type SlidesClient, type Subject } from "./client.js";
 import { createLiveService, isLiveServer, type LiveOptions } from "./live.js";
 import { createService } from "./service.js";
 import { createFileBlobs, createFileStore } from "./store/file.js";
@@ -32,7 +33,19 @@ const OPTIONS = {
   limit: { type: "string" },
   cursor: { type: "string" },
   present: { type: "boolean" },
+  subject: { type: "string" },
+  role: { type: "string" },
+  email: { type: "string" },
+  handle: { type: "string" },
+  "expires-in-ms": { type: "string" },
+  "signed-in-only": { type: "boolean" },
+  link: { type: "string" },
+  "invite-cursor": { type: "string" },
+  "link-cursor": { type: "string" },
 } as const;
+
+const ROLES = ["owner", "editor", "commenter", "viewer"] as const;
+const SHARE_COMMANDS = new Set(["access", "grant", "revoke", "invite", "accept-invite", "share-link", "revoke-link"]);
 
 const HELP = `${COMMAND} ${VERSION}
 ${DESCRIPTION}
@@ -53,7 +66,20 @@ Commands:
   delete-deck <deck>                              Delete a deck and its list entry. Images stay in the store.
   render <deck> [--present] [--out <file>]        Print a self-contained HTML page.
   export <deck> --out <file> [--format pdf]       Write the deck as a PDF.
+  access <deck> [--limit <n>] [--cursor <t>] [--invite-cursor <t>] [--link-cursor <t>]
+                                                  Print who can reach a deck: grants, invites, links. Owner only.
+  grant <deck> --subject <human|agent>:<id> --role <role>
+                                                  Give a person or an agent a role. Owner only.
+  revoke <deck> --subject <human|agent>:<id>      Take a role away.
+  invite <deck> --role <role> (--email <e> | --handle <h>) [--expires-in-ms <n>]
+                                                  Invite a person or an agent. Prints the invite id. Sends no message.
+  accept-invite <id>                              Accept an invite by handle. The handle is the name of the token.
+  share-link <deck> --role <role> [--expires-in-ms <n>] [--signed-in-only]
+                                                  Make a share link. Prints the link token once.
+  revoke-link <deck> --link <id>                  Revoke a share link.
   mcp                                             Start the MCP server on stdio.
+
+The sharing commands (access to revoke-link) need --live: roles live on the server. A role is ${ROLES.join(", ")}.
 
 Flags:
   --dir <path>   The deck store. Default: $SLIDES_DIR or .slides
@@ -101,6 +127,52 @@ async function readImages(text: string, base: string): Promise<Record<string, Ui
   return files;
 }
 
+function parseSubject(text: string | undefined): Subject {
+  const cut = text?.indexOf(":") ?? -1;
+  const kind = text?.slice(0, cut);
+  if (text === undefined || cut < 1 || (kind !== "human" && kind !== "agent")) throw new UsageError("--subject needs <human|agent>:<id>, for example human:bob");
+  return { kind, id: text.slice(cut + 1) };
+}
+
+function parseRole(text: string | undefined): Role {
+  if (!(ROLES as readonly (string | undefined)[]).includes(text)) throw new UsageError(`--role needs one of ${ROLES.join(", ")}`);
+  return text as Role;
+}
+
+interface ShareArgs {
+  deck: string;
+  values: { limit?: string; cursor?: string; "invite-cursor"?: string; "link-cursor"?: string; subject?: string; role?: string; email?: string; handle?: string; link?: string; "expires-in-ms"?: string; "signed-in-only"?: boolean };
+  positionals: string[];
+  need: <T>(value: T | undefined, flag: string) => T;
+  number: (value: string | undefined, flag: string) => number | undefined;
+}
+
+/** The sharing commands. They call the HTTP API, which checks every role. */
+async function share(command: string, client: SlidesClient, { deck, values, positionals, need, number }: ShareArgs): Promise<void> {
+  const print = (value: unknown) => console.log(JSON.stringify(value));
+  const expiresInMs = number(values["expires-in-ms"], "expires-in-ms");
+  switch (command) {
+    case "access":
+      return print(await client.access(need(deck, "deck"), { limit: number(values.limit, "limit"), cursor: values.cursor, inviteCursor: values["invite-cursor"], linkCursor: values["link-cursor"] }));
+    case "grant":
+      await client.grant(need(deck, "deck"), { subject: parseSubject(values.subject), role: parseRole(values.role) });
+      return print({ ok: true });
+    case "revoke":
+      await client.revoke(need(deck, "deck"), parseSubject(values.subject));
+      return print({ ok: true });
+    case "invite":
+      return print(await client.invite(need(deck, "deck"), { role: parseRole(values.role), email: values.email, handle: values.handle, expiresInMs }));
+    case "accept-invite":
+      await client.acceptInvite(need(positionals[0], "invite id"));
+      return print({ ok: true });
+    case "share-link":
+      return print(await client.createShareLink(need(deck, "deck"), { role: parseRole(values.role), expiresInMs, signedInOnly: values["signed-in-only"] }));
+    default:
+      await client.revokeShareLink(need(deck, "deck"), need(values.link, "link"));
+      return print({ ok: true });
+  }
+}
+
 export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
   const [command, ...rest] = argv;
   if (command === undefined || command === "--help" || command === "-h") {
@@ -128,6 +200,11 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
       const { startMcp } = await import("./mcp.js");
       const named = values.as ?? env.SLIDES_AUTHOR;
       await startMcp({ dir, author: named ? parsePrincipal(named) : undefined, live });
+      return 0;
+    }
+    if (SHARE_COMMANDS.has(command)) {
+      if (!live) throw new UsageError("sharing needs a server: set --live and $SLIDES_LIVE_TOKEN. Roles live on the server");
+      await share(command, createClient({ baseUrl: live.server, token: live.token }), { deck, values, positionals, need, number });
       return 0;
     }
     const service = live ? createLiveService(live) : createService({ store: createFileStore(dir), blobs: createFileBlobs(join(dir, "blobs")) });
@@ -190,6 +267,10 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
     return 0;
   } catch (error) {
     if (error instanceof SlidesError) {
+      console.error(JSON.stringify({ error: { code: error.code, message: error.message, issues: error.issues } }));
+      return 1;
+    }
+    if (error instanceof SlidesApiError) {
       console.error(JSON.stringify({ error: { code: error.code, message: error.message, issues: error.issues } }));
       return 1;
     }
