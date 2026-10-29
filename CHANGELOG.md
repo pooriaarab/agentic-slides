@@ -6,9 +6,9 @@ This file lists the notable changes to this project, by version.
 
 ### Breaking changes
 
-- None in the HTTP API, the SDK, the CLI, or the MCP server. Their routes and names stay the same.
-- One deploy step is required. Run `npm run build` before `wrangler deploy`. Without it, `wrangler deploy` and
-  `wrangler dev` stop with an error that names `assets.directory`. See "Changed".
+- Run `npm run build` before `wrangler deploy` or `wrangler dev`. Without `dist/ui`, Wrangler stops with an error
+  that names `assets.directory`. See "Changed".
+- The HTTP API, the SDK, the CLI, and the MCP server do not change.
 
 ### Added
 
