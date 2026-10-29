@@ -30,9 +30,9 @@ This file lists the notable changes to this project, by version.
 ### Changed
 
 - The root exports of `agentic-slides` stay the same. The `agentic-slides/live` export is new.
-- `agentic-realtime` moves from ^0.1.0 to ^0.2.0. Its `Realtime` port gained six methods: `revoke`,
-  `updateRole`, `roleFor`, `erase`, `exportHistory`, and `attribution`. This package does not call them yet.
-  A live room cannot revoke a token or change its role in this release.
+- The package depends on `agentic-realtime` ^0.2.0 for live rooms. Its `Realtime` port has six new methods:
+  `revoke`, `updateRole`, `roleFor`, `erase`, `exportHistory`, and `attribution`. This package does not call
+  them yet. A live room cannot revoke a token or change its role in this release.
 - `agentic-identity` moves from ^0.2.0 to ^0.4.0.
 
 ## 0.1.0 - 2026-10-29
