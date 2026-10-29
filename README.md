@@ -75,6 +75,28 @@ To join live rooms, set `SLIDES_LIVE_URL` and `SLIDES_LIVE_TOKEN` in the server 
 Worker who the token is, uses that author, and refuses a person's token. Each tool call joins the room, makes
 its change, saves it, and leaves. A tool call never carries a credential.
 
+## Live demo
+
+A demo Worker runs on workers.dev: <https://agentic-slides-demo.hello-fd1.workers.dev>
+
+- `GET /health` answers 200 with no token.
+- Every `/api/v1/slides` call needs a bearer token. The demo has no public token, so a call without one gets 401.
+- It is a staging demo. Its data can be reset at any time. Do not store real content in it.
+- It uses its own D1 database and R2 bucket, both in the EU.
+
+To deploy your own copy, log in to Cloudflare (`npx wrangler login`), then create the D1 database and the R2 bucket.
+Put the database id in `wrangler.demo.jsonc`:
+
+```sh
+export WRANGLER_SEND_METRICS=false
+npx wrangler d1 create agentic-slides-demo --location weur
+npx wrangler r2 bucket create agentic-slides-demo-images --jurisdiction eu
+npm ci && npm run deploy:demo
+npx wrangler secret put SLIDES_TOKENS -c wrangler.demo.jsonc
+```
+
+To redeploy after a change, run `npm run deploy:demo` again. Put no token in a file or in CI. Set it only with `wrangler secret put`.
+
 ## HTTP API
 
 A Cloudflare Worker (Hono) serves `/api/v1/slides`. It mirrors the CLI. Set tokens as a secret.

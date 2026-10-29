@@ -1,0 +1,18 @@
+{
+  // Demo Worker on workers.dev. It runs the same code as wrangler.jsonc, with its own D1 database and R2 bucket in the EU.
+  // Deploy: `npm run deploy:demo`. The README has the steps. Set the tokens as a secret: `npx wrangler secret put SLIDES_TOKENS -c wrangler.demo.jsonc`.
+  "name": "agentic-slides-demo",
+  "main": "src/live-worker.ts",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "send_metrics": false,
+  "durable_objects": { "bindings": [{ "name": "SYNC_ROOM", "class_name": "SyncRoom" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SyncRoom"] }],
+  "assets": { "directory": "./dist/ui", "run_worker_first": ["/api/*", "/health"] },
+  // Created with: wrangler d1 create agentic-slides-demo --location weur
+  "d1_databases": [{ "binding": "DB", "database_name": "agentic-slides-demo", "database_id": "56f5da85-2fdd-4628-af32-c4d33aa8e3f9" }],
+  // Created with: wrangler r2 bucket create agentic-slides-demo-images --jurisdiction eu
+  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "agentic-slides-demo-images", "jurisdiction": "eu" }],
+  "rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }]
+}
