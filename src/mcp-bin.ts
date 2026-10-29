@@ -4,7 +4,7 @@ import { VERSION } from "./version.js";
 const HELP = `agentic-slides-mcp ${VERSION}
 Usage: agentic-slides-mcp [--help | --version]
 
-Runs the MCP server on stdio. An MCP client starts it; it takes no other arguments.
+Runs the MCP server on stdio. An MCP client starts it.
 `;
 
 // Loaded only when serving, so --help and --version never pay for the server's imports.
@@ -31,9 +31,12 @@ async function serve(): Promise<void> {
 
 const flag = process.argv[2];
 if (flag === "--version" || flag === "-V") {
-  console.log(VERSION);
+  process.stdout.write(`${VERSION}\n`);
 } else if (flag === "--help" || flag === "-h") {
-  console.log(HELP);
+  process.stdout.write(HELP);
 } else {
-  serve();
+  serve().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 }
