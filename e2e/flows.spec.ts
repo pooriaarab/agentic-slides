@@ -3,7 +3,7 @@ import { AGENT, VIEWER } from "../playwright.config.js";
 import { agentDeck, createDeck, signIn } from "./helpers.js";
 
 const textBox = (page: Page, n: number) => page.getByRole("button", { name: new RegExp(`^Text box ${n}`) });
-const toast = (page: Page, title: string) => page.locator(".ad-toast__title", { hasText: title });
+const toast = (page: Page, title: string) => page.locator(".agd-toast__title", { hasText: title });
 
 test("create a deck, add a slide, edit text, reload keeps it, and present with the arrow keys", async ({ page }) => {
   await signIn(page);
