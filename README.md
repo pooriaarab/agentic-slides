@@ -132,6 +132,8 @@ writer can still label a change as another writer of that room.
 
 ### Join a live room from code
 
+This needs Node 22 or later. It does not work in a browser yet: the token goes in a WebSocket header.
+
 ```ts
 import { LiveDeck } from "agentic-slides/live";
 

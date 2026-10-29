@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { Deck } from "./core/deck.js";
-import { createLiveService, whoAmI, type LiveOptions } from "./live.js";
+import { createLiveService, isLiveServer, whoAmI, type LiveOptions } from "./live.js";
 
 // Ways the live client can fail before it reaches a room. The E2E in src/e2e/live-client.test.ts joins real rooms.
 const TOKEN = "agent-token-0123456789-abcdefghij";
@@ -89,6 +89,56 @@ describe("a live call fails before it opens a room", () => {
     await whoAmI(url, TOKEN);
     expect(seen).toEqual([`Bearer ${TOKEN}`]);
     expect(requests.join(" ")).not.toContain(TOKEN);
+  });
+});
+
+describe("the library sends a token only over https, or over http to this machine", () => {
+  const author = { kind: "agent", name: "x" } as const;
+
+  test.each(["http://example.com", "http://127.0.0.1.example.com", "ftp://example.com", "not a url", ""])("%j gets no request", async (server) => {
+    const sent: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: unknown) => (sent.push(String(input)), new Response("{}"))) as typeof fetch;
+    try {
+      await expect(whoAmI(server, TOKEN)).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
+      await expect(createLiveService({ server, token: TOKEN }).create({ title: "T", author })).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
+      await expect(createLiveService({ server, token: TOKEN }).outline("d")).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
+      expect(sent).toEqual([]);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  test("https and this machine are accepted", () => {
+    expect(["https://slides.example.com", "http://127.0.0.1:8787", "http://localhost:8787", "http://[::1]:8787"].map(isLiveServer)).toEqual([true, true, true, true]);
+  });
+});
+
+describe("a connection that the server closed while it was idle", () => {
+  // Node reuses a connection, and a server may close it between two requests. The client tries once more, except for create.
+  async function dropFirst(): Promise<string> {
+    let drops = 0;
+    requests.length = 0;
+    server = createServer((request, response) => {
+      requests.push(`${request.method} ${request.url}`);
+      if (drops++ === 0) return void request.socket.destroy();
+      response.writeHead(request.url?.endsWith("/me") ? 200 : 201, { "content-type": "application/json" });
+      response.end(JSON.stringify(request.url?.endsWith("/me") ? agent.body : { id: "made" }));
+    });
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    return `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
+  }
+
+  test("a read is tried once more", async () => {
+    const url = await dropFirst();
+    expect(await whoAmI(url, TOKEN)).toMatchObject({ role: "editor" });
+    expect(requests).toHaveLength(2);
+  });
+
+  test("a create is not repeated, since the first try may have made the deck", async () => {
+    const url = await dropFirst();
+    await expect(createLiveService({ server: url, token: TOKEN }).create({ title: "T", author: { kind: "agent", name: "x" } })).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
+    expect(requests).toHaveLength(1);
   });
 });
 

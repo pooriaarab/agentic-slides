@@ -66,10 +66,17 @@ const checkId = (id: string) => {
 };
 
 async function ask(server: string, token: string, path: string, init: RequestInit = {}): Promise<Response> {
-  try {
-    return await fetch(`${base(server)}${path}`, { ...init, headers: { ...init.headers, authorization: `Bearer ${token}` } });
-  } catch (error) {
-    throw unreachable(error);
+  if (!isLiveServer(server)) fail("LIVE_UNAVAILABLE", "the server address must be https://, or http:// on this machine: a token must not cross the network in the clear");
+  // Creating a deck is the one request that must not run twice: the first try may have made it.
+  const attempts = init.method === "POST" && path === "/decks" ? 1 : 2;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fetch(`${base(server)}${path}`, { ...init, headers: { ...init.headers, authorization: `Bearer ${token}` } });
+    } catch (error) {
+      // A server may close a connection that sat idle, and Node reuses it. One more try opens a new connection.
+      const closed = (error as { cause?: { code?: unknown } }).cause?.code === "UND_ERR_SOCKET";
+      if (!closed || attempt >= attempts) throw unreachable(error);
+    }
   }
 }
 
@@ -123,7 +130,7 @@ export class LiveDeck {
       throw unreachable(error);
     }
     try {
-      // A room that nobody opened is empty. A merge is safe when it holds the deck already.
+      // A room that nobody opened is empty. The stored deck and the room come from one Yjs document, so the merge adds nothing twice.
       Y.applyUpdate(client.doc, state);
       await client.flush();
       // A room drops a viewer's seed, and that is no refusal of an edit. An editor's refused seed is an error.

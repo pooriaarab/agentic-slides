@@ -54,7 +54,7 @@ Commands:
 Flags:
   --dir <path>   The deck store. Default: $SLIDES_DIR or .slides
   --live <url>   Join a live room on a server instead of using files. Or set $SLIDES_LIVE_URL.
-                 The token is $SLIDES_LIVE_TOKEN. The token sets who edits, so --as and --dir are refused.
+                 The token is $SLIDES_LIVE_TOKEN. The token sets who edits, so --as, --dir, and $SLIDES_AUTHOR are refused. $SLIDES_DIR is not used.
   --as <kind:name>  Who edits: ${PRINCIPAL_KINDS.join(", ")}. Or set $SLIDES_AUTHOR.
                  Pass the real kind. Edits by an agent are labeled as machine-made.`;
 
@@ -111,8 +111,8 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
     const { values, positionals } = parseArgs({ args: rest, options: OPTIONS, allowPositionals: true });
     const dir = values.dir ?? env.SLIDES_DIR ?? ".slides";
     const live = liveOptions(values.live ?? env.SLIDES_LIVE_URL, env, values);
-    // In a live room the server reads the author from the token, so this one is never used.
-    const author = () => (live ? { kind: "agent" as const, name: "live" } : parseAuthor(values.as ?? env.SLIDES_AUTHOR));
+    // In a live room the server reads the author from the token. This stand-in fails `checkAuthor`, so a change that used it would fail closed.
+    const author = () => (live ? { kind: "set-by-the-token" as never, name: "" } : parseAuthor(values.as ?? env.SLIDES_AUTHOR));
     const [deck = ""] = positionals;
     const need = <T>(value: T | undefined, flag: string): T => value ?? (() => { throw new UsageError(`${command} needs --${flag}`); })();
     const number = (value: string | undefined, flag: string): number | undefined => {
