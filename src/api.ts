@@ -172,8 +172,10 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     const decision = owned.type === DECK && ctx ? await sharing.can(ctx, actionOf(c.req.method, c.req.path.replace(/^.*?\/decks\/[^/]+/, "")), id) : { allowed: false };
     if (!decision.allowed && !("role" in decision && decision.role) && ctx && owned.type === DECK) {
       // The scope of the token can stop an action before the role is read. A caller with a role gets 403, not the answer for a missing deck.
-      const held = await sharing.can({ ...ctx, scopes: [`${DECK}:admin`] }, "read", id);
-      if (held.allowed) return c.json(failure("FORBIDDEN", "This token cannot do this. It may only read."), 403);
+      // A plain read of the grant, so no audit row says that the caller did something that its token cannot do.
+      const subject = subjectOf(callerOf(c));
+      const grant = subject && (await store.query<{ role?: string }>("grants", { where: { resourceId: id, subjectKind: subject.kind, subjectId: subject.id }, limit: 1 })).items[0];
+      if (grant && (ROLES as readonly unknown[]).includes(grant.data.role)) return c.json(failure("FORBIDDEN", "This token cannot do this. It may only read."), 403);
     }
     if (!decision.allowed) {
       return "role" in decision && decision.role
@@ -249,8 +251,9 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     const held = new Set<string>();
     if (subject) {
       for (let at: string | undefined, n = 0; n < MAX_HELD_PAGES; n++) {
-        const roles = await store.query<{ resourceId?: string }>("grants", { where: { subjectKind: subject.kind, subjectId: subject.id }, limit: 200, ...(at === undefined ? {} : { cursor: at }) });
-        for (const { data } of roles.items) if (typeof data.resourceId === "string") held.add(data.resourceId);
+        const roles = await store.query<{ resourceId?: string; role?: string }>("grants", { where: { subjectKind: subject.kind, subjectId: subject.id }, limit: 200, ...(at === undefined ? {} : { cursor: at }) });
+        // Only a role that identity honors counts. A record with another role holds nothing.
+        for (const { data } of roles.items) if (typeof data.resourceId === "string" && (ROLES as readonly unknown[]).includes(data.role)) held.add(data.resourceId);
         if ((at = roles.nextCursor) === undefined) break;
       }
     }
@@ -393,11 +396,9 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     if (c.get("author").kind !== "agent") return fail("FORBIDDEN", "Only an agent token can accept an invite by handle.");
     const invite = await store!.get<{ resourceId?: string; role?: string }>("invites", id);
     await viaSharing(() => share.acceptInvite(contextFor(c), id, { handle: c.get("author").name }));
-    // As for a grant: the room learns the new role, and a ban from an earlier revoke ends.
+    // A ban from an earlier revoke ends. An accept never lowers a role, so the room needs no cap: a socket that is open keeps the role that it has.
     const subject = subjectOf(callerOf(c));
-    if (live && subject && typeof invite?.resourceId === "string") {
-      for (const who of roomPrincipals(subject)) await live(c.env).updateRole(invite.resourceId, who, invite.role === "owner" || invite.role === "editor" ? null : "viewer");
-    }
+    if (live && subject && typeof invite?.resourceId === "string") for (const who of roomPrincipals(subject)) await live(c.env).updateRole(invite.resourceId, who, null);
     return c.json({ ok: true });
   });
 

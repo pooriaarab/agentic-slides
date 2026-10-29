@@ -469,6 +469,39 @@ describe("second review fixes", () => {
   });
 });
 
+describe("third review fixes", () => {
+  test("a grant with a role that identity does not honor keeps the deck out of the list", async () => {
+    const { call, store } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Secret title", id: "plan" } });
+    await store.put("grants", "plan:human:bob", { resourceId: "plan", subjectKind: "human", subjectId: "bob", role: "superuser" });
+    expect((await call("GET", "/decks/plan", { token: BOB })).status).toBe(404);
+    const listed = await call("GET", "/decks", { token: BOB });
+    expect(listed.json.decks).toEqual([]);
+    expect(listed.text).not.toContain("Secret title");
+    expect((await call("GET", "/decks", { token: ADA })).json.decks).toHaveLength(1);
+  });
+
+  test("an invite for a lower role never caps the room of an editor", async () => {
+    const { call, room } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "agent", subjectId: "bot", role: "editor" } });
+    const { id } = (await call("POST", "/decks/plan/invites", { token: ADA, body: { role: "viewer", handle: "bot" } })).json;
+    room.length = 0;
+    expect((await call("POST", "/invites/accept", { token: BOT, body: { id } })).status).toBe(200);
+    expect(room).toEqual(["role plan agent:bot null"]);
+    expect((await call("POST", "/decks/plan/slides", { token: BOT, body: OUTLINE })).status).toBe(201);
+  });
+
+  test("a 403 for a viewer token writes no audit row that claims an allowed action", async () => {
+    const { call, store } = setup();
+    await call("POST", "/decks", { token: ADA, body: { title: "Plan", id: "plan" } });
+    await call("POST", "/decks/plan/grants", { token: ADA, body: { subjectKind: "human", subjectId: "vic", role: "owner" } });
+    expect((await call("GET", "/decks/plan/access", { token: VIEW })).status).toBe(403);
+    const rows = (await store.query("audit", { where: { resourceId: "plan", outcome: "allowed" }, limit: 100 })).items.map((r) => r.data);
+    expect(rows.filter((r) => (r as { principalId?: string }).principalId === "vic")).toEqual([]);
+  });
+});
+
 describe("without a store", () => {
   test("the token role is the only check, and the share routes say sharing is off", async () => {
     const app = createApp({ service: createService({ store: createMemoryStore(), blobs: createMemoryBlobs() }), auth: tokenAuth(parseTokens(TOKENS)) });

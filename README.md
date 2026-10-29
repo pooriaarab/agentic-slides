@@ -164,7 +164,7 @@ A token of another kind (for example `agent_of_human`) is the subject `agent:<ki
 | `GET /shared/:deck` | Read the outline with the link token in the `x-link-token` header. No bearer token is needed. |
 | `GET /shared/:deck/render?present=1` | The HTML page, with the same header. |
 
-A link gives read access only. A bad, revoked, or expired link gets 404, unless you also send a bearer token that holds a role on the deck. A bearer token that you send must be valid.
+A link gives read access only. A client must send the header: a plain page load of a browser cannot, so a link does not open in a browser by itself. A bad, revoked, or expired link gets 404, unless you also send a bearer token that holds a role on the deck. A bearer token that you send must be valid.
 The Worker keeps the roles in the same D1 database as the decks. A deck made before sharing has no owner:
 it keeps the token role check, and the share routes answer 403 for it. `createApp` takes a `store` for this. Without it, no roles apply.
 
