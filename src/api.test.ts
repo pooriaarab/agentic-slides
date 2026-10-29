@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { createApp } from "./api.js";
 import { parseTokens, tokenAuth } from "./auth.js";
 import { createService } from "./service.js";
-import { MemoryBlobs, MemoryStore } from "./store/memory.js";
+import { createMemoryBlobs, createMemoryStore } from "agentic-identity";
 import { DEFAULT_LIMITS } from "./export/limits.js";
 import { decodeImages } from "./schemas.js";
 import { PRESENT_CSP } from "./render/present.js";
@@ -17,7 +17,7 @@ const TOKENS = `${HUMAN}=human:ada,${AGENT}=agent_of_human:bot`;
 const BASE = "http://slides.test/api/v1/slides";
 
 function appFor(config: string | undefined = TOKENS) {
-  const app = createApp({ service: createService({ store: new MemoryStore(), blobs: new MemoryBlobs() }), auth: tokenAuth(parseTokens(config)) });
+  const app = createApp({ service: createService({ store: createMemoryStore(), blobs: createMemoryBlobs() }), auth: tokenAuth(parseTokens(config)) });
   return (method: string, path: string, init: { token?: string; body?: unknown; headers?: Record<string, string>; raw?: string } = {}) =>
     app.request(`${BASE}${path}`, {
       method,
@@ -33,7 +33,7 @@ describe("auth fails closed", () => {
       expect((await call("GET", "/decks/x", { token })).status).toBe(401);
       expect((await call("POST", "/decks", { token, body: { title: "t" } })).status).toBe(401);
     }
-    const app = createApp({ service: createService({ store: new MemoryStore(), blobs: new MemoryBlobs() }), auth: tokenAuth([]) });
+    const app = createApp({ service: createService({ store: createMemoryStore(), blobs: createMemoryBlobs() }), auth: tokenAuth([]) });
     expect((await app.request("http://slides.test/health")).status).toBe(200);
   });
 

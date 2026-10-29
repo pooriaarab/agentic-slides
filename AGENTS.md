@@ -15,11 +15,11 @@ and speaker notes. All positions use one 1280 by 720 space.
 - `src/core/model.ts`: element types and inline marks.
 - `src/core/principal.ts`: author kinds and error codes.
 - `src/service.ts`: the operations that the CLI, the MCP server, and the API share. Slide positions are 1-based here.
-- `src/ports.ts`, `src/store/file.ts`: the store and blob ports and the file adapters.
+- `src/store/file.ts`: the file adapters for the `Store` and `Blobs` ports of `agentic-identity`. Do not add a local port.
 - `src/export/pdf.ts`: PDF export without a browser.
 - `src/cli.ts`, `src/mcp.ts`, `src/api.ts`, `src/worker.ts`: the faces. Keep them thin.
 - `src/auth.ts`: bearer tokens. A token names the author. The default is closed.
-- `src/store/memory.ts`: memory adapters for the Worker. Do not import Node modules in code that the Worker loads.
+- Code that the Worker loads must not import Node modules, except what `agentic-identity` needs (`nodejs_compat` is on).
 - `src/e2e/`: tests that run the built CLI and MCP server. Run `npm run build` first.
 - `src/render/html.ts`, `src/render/present.ts`: deck and present pages. Escape all text. Load nothing remote.
 
