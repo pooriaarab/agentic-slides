@@ -4,16 +4,20 @@ This file lists the notable changes to this project, by version.
 
 ## 0.6.0 - 2026-10-29
 
-No breaking changes.
+Read the breaking changes before you upgrade or deploy.
+
+### Breaking changes
+
+- **Live names are checked.** `agentic-realtime` 0.4.0, which this release uses, accepts a peer name only if it has 1 to 40 letters, digits, spaces, or the marks `. _ ' ’ ( ) -`. The name is normalized to NFC first. It may not have invisible characters, a run of marks, or spaces at the ends or two in a row. A live join with another name fails with `LIVE_UNAVAILABLE`. The name comes from `SLIDES_LIVE_NAME`, from the `name` option of the live client, or else from the author name of your token. Check these names before you upgrade. Use `isSafePeerName` from `agentic-realtime` on the NFC form of the name. On the Worker, a peer whose name is not safe shows as `Unknown`.
 
 ### Added
 
 - **`agentic-slides/worker`.** The package exports its Worker entry as a subpath, so a host can import the Worker from npm. The README shows how to use it.
-- **A live demo.** `wrangler.demo.jsonc` deploys a demo Worker, with its own D1 database and R2 bucket in the EU. `npm run deploy:demo` runs the deploy. The README has a Live demo section with the URL and the steps to redeploy. The demo token is a Worker secret only.
+- **A live demo.** `wrangler.demo.jsonc` deploys a demo Worker, with its own D1 database and R2 bucket in the EU. `npm run deploy:demo` runs the deploy. The README has a Live demo section with the URL and the steps to redeploy. The demo token is a Worker secret only. These files are in the repository, not in the npm package.
 
 ### Changed
 
-- The dependencies are the latest npm releases: `agentic-identity` 0.5.0 and `agentic-realtime` 0.4.0. The `agentic-design` dev dependency is 0.2.0. The API, the SDK, the CLI, and the MCP server did not change.
+- The dependencies are the latest npm releases: `agentic-identity` 0.5.0 and `agentic-realtime` 0.4.0. The `agentic-design` dev dependency is 0.2.0. The tests of this repository pass on these versions. The source code of the HTTP API, the SDK, the CLI, and the MCP server did not change.
 
 ## 0.5.0 - 2026-10-29
 
