@@ -2,6 +2,12 @@
 
 This file lists the notable changes to this project, by version.
 
+## Unreleased
+
+### Breaking changes
+
+- The Worker signs requests in with agentic-identity credentials by default. The scope `slides:write` makes an editor, `slides:read` a viewer, and a valid credential with neither gets 403. `SLIDES_TOKENS` is now a dev fallback. It needs `SLIDES_UNSAFE_STATIC_TOKENS=1`. A Worker that sets `SLIDES_TOKENS` without the switch answers every API call with 500 `MISCONFIGURED`. Set the switch in dev, or issue identity credentials.
+
 ## 0.9.0 - 2026-10-29
 
 Read the breaking changes before you upgrade or deploy.

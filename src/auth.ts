@@ -11,8 +11,11 @@ export interface Caller {
   role: SlidesRole;
 }
 
-/** Names the caller of a request, or returns null. Replace it with the agentic-identity `Auth` port when that ships. */
+/** Names the caller of a request, or returns null. It throws `NotGrantedError` for a caller that is known and holds no slides scope. */
 export type Authenticator = (request: Request) => Promise<Caller | null>;
+
+/** The credential is valid and its principal holds no `slides:read` or `slides:write` scope. The API answers 403. */
+export class NotGrantedError extends Error {}
 
 /** The token setting is unusable. The message never holds a token. */
 export class ConfigError extends Error {}

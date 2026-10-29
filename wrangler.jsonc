@@ -6,7 +6,8 @@
   // Create the bucket in the EU:
   //   wrangler r2 bucket create agentic-slides-images --jurisdiction eu
   // Local `wrangler dev` keeps its own copy of both and ignores the id.
-  // Set the tokens as a secret: `npx wrangler secret put SLIDES_TOKENS`. A token has 32 or more characters.
+  // Requests sign in with agentic-identity credentials in this D1 database. A principal needs the scope slides:write (editor) or slides:read (viewer).
+  // For local dev only, set SLIDES_UNSAFE_STATIC_TOKENS=1 and SLIDES_TOKENS as vars. Never set them in production.
   "name": "agentic-slides",
   "main": "src/live-worker.ts",
   "compatibility_date": "2026-01-01",

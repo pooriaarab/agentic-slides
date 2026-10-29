@@ -47,7 +47,7 @@ export async function worker(tokens: string): Promise<Server> {
       let log = "";
       child = spawn(
         "npx",
-        ["wrangler", "dev", "--port", String(port), "--ip", "127.0.0.1", "--inspector-port", String(await freePort()), "--persist-to", join(home, "state"), "--var", "SLIDES_REGION:unknown", "--var", `SLIDES_TOKENS:${tokens}`],
+        ["wrangler", "dev", "--port", String(port), "--ip", "127.0.0.1", "--inspector-port", String(await freePort()), "--persist-to", join(home, "state"), "--var", "SLIDES_REGION:unknown", "--var", "SLIDES_UNSAFE_STATIC_TOKENS:1", "--var", `SLIDES_TOKENS:${tokens}`],
         { env: { ...process.env, WRANGLER_SEND_METRICS: "false", HOME: home, XDG_CONFIG_HOME: home, CI: "1" }, detached: true },
       );
       child.stdout?.on("data", (chunk: Buffer) => (log += chunk));

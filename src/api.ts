@@ -6,7 +6,7 @@ import type { Realtime } from "agentic-realtime";
 import { acceptWebSocketProtocol, principalFromWebSocketRequest } from "agentic-identity/http";
 import { EraseRefusedError, MAX_OWNERS_ON_ERASE, ROLES, StoreConflictError, createSharing, type Auth, type Json, type PrincipalContext, type Role, type Store, type Subject } from "agentic-identity";
 import { DECK, DECK_ID, contextOf, roomPrincipals, subjectOf } from "./access.js";
-import { ConfigError, type Authenticator, type Caller, type SlidesRole } from "./auth.js";
+import { ConfigError, NotGrantedError, type Authenticator, type Caller, type SlidesRole } from "./auth.js";
 import { SlidesError, fail, parsePrincipal, type Principal, type SlidesErrorCode } from "./core/principal.js";
 import { toBase64 } from "./bytes.js";
 import { openCursor, sealCursor } from "./cursor.js";
@@ -24,6 +24,8 @@ export interface AppDeps {
   live?: (env: unknown) => Realtime;
   /** The people and agents that the editor tokens name now. A checkpoint trusts a label only from these. Without it, none is trusted. */
   principals?: Principal[];
+  /** True when a principal id (`<kind>:<name>`) may label a change in a checkpoint, because it holds write rights now. It adds to `principals`, for callers that identity credentials name. */
+  trusted?: (id: string) => Promise<boolean>;
   /**
    * The store that holds the roles. With it, each deck made through the API has an owner, and the routes check the role of the caller.
    * Without it, the token role is the only check. A deck with no owner (made before sharing) keeps that check.
@@ -129,7 +131,7 @@ function roomAuth(auth: AppDeps["auth"]): { port: Auth; callers: WeakMap<Princip
 const failure = (code: string, message: string, extra: object = {}) => ({ error: { code, message, ...extra } });
 
 /** The HTTP API under /api/v1/slides. It mirrors the CLI. The caller's token names the author of each edit. */
-export function createApp({ service, auth, live, principals = [], store }: AppDeps) {
+export function createApp({ service, auth, live, principals = [], trusted, store }: AppDeps) {
   const sharing = store && createSharing(store);
   const configured = new Set(principals.map((who) => `${who.kind}:${who.name}`));
   const app = new Hono<{ Variables: { author: Principal; role: SlidesRole } }>();
@@ -223,7 +225,9 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
       // The room knows who sent updates. Those people and agents may label a change, with the caller, while a configured token still names them.
       // A token that was removed keeps its record in the room, but its label is no longer trusted.
       const seen = live ? (await live(c.env).meta(id)).contributors : [];
-      const allowed = [c.get("author"), ...seen.filter((who) => configured.has(who.id)).map((who) => parsePrincipal(who.id))];
+      const known: Principal[] = [];
+      for (const who of seen) if (configured.has(who.id) || (await trusted?.(who.id))) known.push(parsePrincipal(who.id));
+      const allowed = [c.get("author"), ...known];
       await service.checkpoint(id, update, allowed);
       return c.json({ ok: true });
     },
@@ -469,6 +473,7 @@ export function createApp({ service, auth, live, principals = [], store }: AppDe
     if (error instanceof SlidesError) {
       return c.json(failure(error.code, error.message, { issues: error.issues }), statusOf(error.code));
     }
+    if (error instanceof NotGrantedError) return c.json(failure("FORBIDDEN", "This credential holds no slides scope."), 403);
     if (error instanceof ConfigError) return c.json(failure("MISCONFIGURED", "The server token setting is invalid."), 500);
     if (error instanceof z.ZodError) {
       return c.json(failure("BAD_REQUEST", "The request body is not valid.", { issues: error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) }), 400);

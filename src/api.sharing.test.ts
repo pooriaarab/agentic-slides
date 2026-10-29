@@ -602,7 +602,7 @@ describe("fifth review fixes", () => {
   test("the Worker refuses a token name that could hold no role", async () => {
     const bindings = { DB: { prepare: () => ({ run: async () => ({}) }), batch: async () => [] } as never, IMAGES: {} as never };
     for (const config of [`${ADA}=human:ada.lovelace`, `${ADA}=agent:agent_of_human_eve`, `${ADA}=agent:${"a".repeat(129)}`]) {
-      const response = await worker.fetch(new Request(`${BASE}/decks/x`, { headers: { authorization: `Bearer ${ADA}` } }), { ...bindings, SLIDES_TOKENS: config });
+      const response = await worker.fetch(new Request(`${BASE}/decks/x`, { headers: { authorization: `Bearer ${ADA}` } }), { ...bindings, SLIDES_UNSAFE_STATIC_TOKENS: "1", SLIDES_TOKENS: config });
       expect(response.status, config).toBe(500);
       expect(((await response.json()) as { error: { code: string } }).error.code).toBe("MISCONFIGURED");
     }

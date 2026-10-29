@@ -19,7 +19,7 @@ export const VIEWER = "viewer-token-0123456789-abcdefghij";
 const tokens = `${HUMAN}=human:ada,${AGENT}=agent_of_human:bot,${VIEWER}=human:eve;viewer`;
 
 const worker = (port: number) => ({
-  command: `npx wrangler dev --port ${port} --ip 127.0.0.1 --inspector-port ${port + 1} --persist-to ${join(state, String(port))} --var SLIDES_REGION:unknown --var '${`SLIDES_TOKENS:${tokens}`}'`,
+  command: `npx wrangler dev --port ${port} --ip 127.0.0.1 --inspector-port ${port + 1} --persist-to ${join(state, String(port))} --var SLIDES_REGION:unknown --var SLIDES_UNSAFE_STATIC_TOKENS:1 --var '${`SLIDES_TOKENS:${tokens}`}'`,
   url: `http://127.0.0.1:${port}/health`,
   reuseExistingServer: false,
   timeout: 120_000,
