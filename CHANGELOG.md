@@ -12,9 +12,10 @@ This file lists the notable changes to this project, by version.
   is no migration in this package. Before you serve requests, run `migrateGrants(store)` from
   `agentic-identity` on the store. It moves each old grant to the new key. It lists the grants that it
   cannot move in `unresolved`. A grant that is not moved is not used. This package makes no grant. Its
-  roles come from `SLIDES_TOKENS`. It has no command that deletes a deck. A host that shares decks must
-  call `deleteResource` when it deletes one. After a store error, the host runs the call again. After
-  `EraseRefusedError`, the host first removes the children or some owners.
+  roles come from `SLIDES_TOKENS`.
+- This package has no command that deletes a deck. A host that shares decks must call `deleteResource`
+  when it deletes one. After a store error, the host runs the call again. After `EraseRefusedError`,
+  the host removes the children, or removes owners until no more than `MAX_OWNERS_ON_ERASE` stay.
 - The Worker entry is now `src/live-worker.ts`. `wrangler.jsonc` adds the `SYNC_ROOM` Durable Object
   binding and its `v1` migration. Deploy with the new `wrangler.jsonc`. A Worker that lacks the
   binding cannot serve live rooms, and `POST /decks/:deck/checkpoint` fails with a server error.

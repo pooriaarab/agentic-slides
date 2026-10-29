@@ -1,5 +1,6 @@
 // Decks hold no roles of their own. A host that shares a deck through agentic-identity keys each grant on
-// the principal kind and the id, and erases the grants with the deck. These tests pin both, against an
+// the principal kind and the id, erases the grants with the deck, and can move grants from the old key.
+// These tests pin all three, against an
 // in-memory Store. The second test shares that Store with a deck service.
 import { createMemoryBlobs, createMemoryStore, createSharing, migrateGrants, type PrincipalContext } from "agentic-identity";
 import { describe, expect, it } from "vitest";
@@ -18,11 +19,12 @@ describe("sharing with agentic-identity 0.4", () => {
     expect((await sharing.can(ctx("kit", "agent"), "read", "plan")).allowed).toBe(false);
 
     await sharing.grant(owner, "plan", { kind: "agent", id: "kit" }, "viewer");
+    expect((await sharing.can(ctx("kit", "agent"), "read", "plan")).role).toBe("viewer");
     expect((await sharing.can(ctx("kit", "agent"), "write", "plan")).allowed).toBe(false);
     expect((await sharing.can(ctx("kit", "human"), "write", "plan")).role).toBe("editor");
   });
 
-  it("erases the grants with the resource, so a new deck with the same id starts clean", async () => {
+  it("erases the grants with the resource, so a new resource with the same id starts clean", async () => {
     const store = createMemoryStore();
     const sharing = createSharing(store);
     const decks = createService({ store, blobs: createMemoryBlobs() });
