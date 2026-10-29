@@ -164,7 +164,7 @@ export function createFileStore(dir: string, options: FileStoreOptions = {}): St
       } catch {
         continue; // The lock went away between the two calls. Try to take it.
       }
-      if (Date.now() > deadline) throw new Error(`could not lock "${path}" within ${waitMs} ms`);
+      if (Date.now() > deadline) throw new StoreConflictError(`could not lock "${path}" within ${waitMs} ms`);
       await sleep(20 + Math.random() * 30);
     }
   };

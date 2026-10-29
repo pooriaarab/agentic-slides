@@ -3,12 +3,13 @@
 //  2. A failed edit leaves a blob that no deck uses.
 //  3. A transaction that runs again writes a blob twice, or fails on the second run.
 //  4. A restart loses a committed edit, or brings back one that rolled back.
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMemoryBlobs, createMemoryStore } from "agentic-identity";
 import { runBlobsContract, runStoreContract } from "agentic-identity/testing";
 import { describe, expect, test } from "vitest";
+import { SlidesError } from "../core/principal.js";
 import { createService } from "../service.js";
 import { createFileBlobs, createFileStore } from "./file.js";
 
@@ -65,5 +66,39 @@ describe("the service on shared ports", () => {
     expect(outline.slides).toHaveLength(1);
     expect(outline.slides[0]!.elements.some((e) => e.editedBy.kind === "agent" && e.machineMade)).toBe(true);
     expect((await second.exportPdf("kept")).warnings).toEqual([]);
+  });
+});
+
+describe("the file store lock", () => {
+  async function withLock(age: number, waitMs?: number) {
+    const dir = fresh();
+    const service = createService({ store: createFileStore(dir, { waitMs }), blobs: createFileBlobs(dir) });
+    await service.create({ title: "Locked", author, id: "locked" });
+    const lock = join(dir, "store.json.lock");
+    writeFileSync(lock, "someone else");
+    const when = new Date(Date.now() - age);
+    utimesSync(lock, when, when);
+    return { service, dir };
+  }
+
+  test("a lock that a dead process left behind is taken over", async () => {
+    const { service } = await withLock(10 * 60_000);
+    await service.addSlides("locked", { outline: "# Ok", author });
+    expect((await service.outline("locked")).slides).toHaveLength(1);
+  });
+
+  test("a live lock is waited for, then the edit fails with STORE_BUSY and changes nothing", async () => {
+    const { service } = await withLock(0, 300);
+    const error = await service.addSlides("locked", { outline: "# No", author }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SlidesError);
+    expect((error as SlidesError).code).toBe("STORE_BUSY");
+  });
+
+  test("two stores on one folder make no stray temp file", async () => {
+    const dir = fresh();
+    const stores = [createFileStore(dir), createFileStore(dir)];
+    await Promise.all(Array.from({ length: 40 }, (_, i) => stores[i % 2]!.put("decks", "same", { n: i })));
+    expect(await stores[0]!.get("decks", "same")).toMatchObject({ n: expect.any(Number) });
+    expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 });
