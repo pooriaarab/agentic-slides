@@ -1,338 +1,144 @@
-import { closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
 import { join } from "node:path";
-import {
-  assertBlobPutOptions,
-  assertCollection,
-  assertResponseHeaders,
-  assertId,
-  createMemoryStore,
-  parseRegion,
-  type AdapterOptions,
-  type Blobs,
-  type Doc,
-  type Page,
-  type Query,
-  type Store,
-  StoreConflictError,
-  type StoreOps,
-} from "agentic-identity";
+import { type AdapterOptions, type Blobs, type Store, StoreConflictError } from "agentic-identity";
+import { type FileBlobsOptions, createFileBlobs as identityBlobs, createFileStore as identityStore } from "agentic-identity/file";
 
 export interface FileStoreOptions extends AdapterOptions {
-  /** A lock older than this is taken over, even if its owner looks alive. Default 10 seconds. */
-  staleMs?: number;
-  /** How long one operation waits for the lock before it fails. Default 30 seconds. */
+  /** How long a call that keeps conflicting runs again before it fails. Default 30 seconds. */
   waitMs?: number;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** True when no process has this id. Any other result, including no permission, counts as alive. */
-function isDead(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return false;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "ESRCH";
-  }
-}
-
-const MAX_TRANSACTION_ATTEMPTS = 50;
-
-interface Row {
-  /** Every write takes the next number, so a doc deleted and made again never repeats a version. */
-  v: number;
-  doc: Doc;
-}
-type Tables = Map<string, Map<string, Row>>;
-interface Data {
-  clock: number;
-  tables: Tables;
-}
-interface Write {
-  collection: string;
-  id: string;
-  doc: Doc | null;
-}
-
-const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const wait = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
- * A Store kept in one JSON file, safe for several processes. A write takes a
- * lock file, reads the file again, applies the change to that fresh copy, and
- * saves it with a write to a unique temp file and a rename. A read also reads
- * the file again, so a long-running process sees other writers.
- *
- * A transaction runs on a snapshot without the lock. At commit it takes the
- * lock, checks that every doc it read still has the version it saw, and then
- * writes. A doc that changed makes it run again, as the Store port requires.
- * It passes `runStoreContract`.
+ * Version 0.8.0 kept `{ clock, tables: { collection: { id: { v, doc } } } }`. The identity adapter reads
+ * `{ format, collections: { collection: { id: doc } } }`. Convert an old file once, under the lock of the
+ * identity adapter, so a decks folder from 0.8.0 still opens.
+ */
+function migrateStoreFile(path: string) {
+  if (!existsSync(path)) return;
+  const convert = (text: string): string | null => {
+    const raw: unknown = JSON.parse(text);
+    if (!isObject(raw) || "format" in raw || !isObject(raw.tables)) return null;
+    const collections: Record<string, Record<string, unknown>> = {};
+    for (const [name, rows] of Object.entries(raw.tables)) {
+      if (!isObject(rows)) throw new Error(`"${path}" is not an agentic-slides data file`);
+      collections[name] = {};
+      for (const [id, row] of Object.entries(rows)) {
+        if (!isObject(row) || !isObject(row.doc)) throw new Error(`"${path}" is not an agentic-slides data file`);
+        collections[name]![id] = row.doc;
+      }
+    }
+    return JSON.stringify({ format: 1, collections });
+  };
+  if (convert(readFileSync(path, "utf8")) === null) return;
+  const lock = `${path}.lock`;
+  const mine = `${process.pid}:${randomBytes(8).toString("hex")}`;
+  for (const start = Date.now(); ; wait(10)) {
+    try {
+      writeFileSync(lock, mine, { flag: "wx", mode: 0o600 });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > 3_000) unlinkSync(lock);
+      } catch {}
+      if (Date.now() - start > 5_000) throw new StoreConflictError("the store file is locked by another process");
+    }
+  }
+  try {
+    // Another process can have converted the file while this one waited, so read it again.
+    const seen = readFileSync(path, "utf8");
+    const next = convert(seen);
+    if (next === null) return;
+    const temp = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+    writeFileSync(temp, next, { mode: 0o600 });
+    // A stall can let another process take the lock over. Then leave its file as it is.
+    if (readFileSync(lock, "utf8") !== mine || readFileSync(path, "utf8") !== seen) {
+      rmSync(temp, { force: true });
+      throw new StoreConflictError("the store file changed during the migration");
+    }
+    renameSync(temp, path);
+  } finally {
+    try {
+      if (readFileSync(lock, "utf8") === mine) unlinkSync(lock);
+    } catch {}
+  }
+}
+
+/** The identity file store reports a write from another process as a conflict. The Store port wants the call to run again. */
+async function again<T>(waitMs: number, run: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + waitMs;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await run();
+    } catch (error) {
+      if (!(error instanceof StoreConflictError) || Date.now() >= deadline) throw error;
+      await sleep(Math.random() * Math.min(5 * attempt, 100));
+    }
+  }
+}
+
+/**
+ * A Store kept in one JSON file under `dir`. It is the file adapter of `agentic-identity`. A write or a
+ * transaction that conflicts with another process runs again until `waitMs` has passed. A read does not
+ * conflict, so it does not run again. The lock wait of the identity adapter blocks the thread for up to
+ * 5 seconds, so a call can take `waitMs` plus about 5 seconds before it fails.
  */
 export function createFileStore(dir: string, options: FileStoreOptions = {}): Store {
-  mkdirSync(dir, { recursive: true });
+  const { waitMs = 30_000, ...rest } = options;
   const path = join(dir, "store.json");
-  const region = options.region === undefined ? "unknown" : parseRegion(options.region);
-  const staleMs = options.staleMs ?? 10_000;
-  const waitMs = options.waitMs ?? 30_000;
-  const lockPath = `${path}.lock`;
-  const token = `${process.pid}:${randomBytes(8).toString("hex")}`;
-
-  /** Reads the file and checks its shape. A version that is not a whole number up to the clock would hide a lost update. */
-  const load = (): Data => {
-    if (!existsSync(path)) return { clock: 0, tables: new Map() };
-    const bad = () => new Error(`"${path}" is not an agentic-slides data file`);
-    const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-    const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
-    if (!isObject(raw) || !Number.isSafeInteger(raw.clock) || (raw.clock as number) < 0 || !isObject(raw.tables)) throw bad();
-    const clock = raw.clock as number;
-    const tables: Tables = new Map();
-    for (const [name, rows] of Object.entries(raw.tables)) {
-      if (!isObject(rows)) throw bad();
-      const table = new Map<string, Row>();
-      for (const [id, row] of Object.entries(rows)) {
-        if (!isObject(row) || !Number.isSafeInteger(row.v) || (row.v as number) < 1 || (row.v as number) > clock || !isObject(row.doc)) throw bad();
-        table.set(id, { v: row.v as number, doc: row.doc as Doc });
-      }
-      tables.set(name, table);
-    }
-    return { clock, tables };
-  };
-  const save = (data: Data) => {
-    const temp = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-    const tables = Object.fromEntries([...data.tables].map(([name, rows]) => [name, Object.fromEntries(rows)]));
-    writeFileSync(temp, JSON.stringify({ clock: data.clock, tables }), { mode: 0o600 });
-    renameSync(temp, path);
-  };
-  const apply = (data: Data, { collection, id, doc }: Write) => {
-    if (doc === null) {
-      data.tables.get(collection)?.delete(id);
-      return;
-    }
-    if (!data.tables.has(collection)) data.tables.set(collection, new Map());
-    data.tables.get(collection)!.set(id, { v: ++data.clock, doc });
-  };
-
-  /** Judges a lock from its content and age. Content that cannot be read counts as live until it is old. */
-  const isStale = (content: string, modified: number): boolean => {
-    if (Date.now() - modified > staleMs) return true;
-    const pid = Number(/^(\d+):/.exec(content)?.[1]);
-    return Number.isInteger(pid) && pid > 0 && isDead(pid);
-  };
-
-  /** Moves a stale lock aside. The rename is atomic, so one process wins. A lock that changed in between is put back. */
-  const takeOver = (seen: string) => {
-    const aside = `${lockPath}.stale.${process.pid}.${randomBytes(6).toString("hex")}`;
-    try {
-      renameSync(lockPath, aside);
-    } catch {
-      return;
-    }
-    try {
-      if (readFileSync(aside, "utf8") !== seen) {
-        // This was a newer lock, not the stale one. Restore it unless another already exists.
-        try {
-          linkSync(aside, lockPath);
-        } catch {}
-      }
-    } finally {
-      try {
-        unlinkSync(aside);
-      } catch {}
-    }
-  };
-
-  const acquire = async () => {
-    const deadline = Date.now() + waitMs;
-    for (;;) {
-      try {
-        const fd = openSync(lockPath, "wx", 0o600);
-        try {
-          writeFileSync(fd, `${token}:${Date.now()}`);
-        } finally {
-          closeSync(fd);
-        }
-        return;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      }
-      try {
-        const content = readFileSync(lockPath, "utf8");
-        if (isStale(content, statSync(lockPath).mtimeMs)) {
-          takeOver(content);
-          continue;
-        }
-      } catch {
-        continue; // The lock went away between the two calls. Try to take it.
-      }
-      if (Date.now() > deadline) throw new StoreConflictError(`could not lock "${path}" within ${waitMs} ms`);
-      await sleep(20 + Math.random() * 30);
-    }
-  };
-
-  const release = () => {
-    try {
-      if (readFileSync(lockPath, "utf8").startsWith(token)) unlinkSync(lockPath);
-    } catch {}
-  };
-
-  // One locked section at a time inside this process; the lock file covers other processes.
-  let queue: Promise<unknown> = Promise.resolve();
-  const exclusive = <R>(run: () => Promise<R>): Promise<R> => {
-    const next = queue.then(run, run);
-    queue = next.catch(() => undefined);
-    return next;
-  };
-
-  /** Runs `use` on a fresh copy of the file, holding the lock. `use` returns false to leave the file unsaved. */
-  const locked = <R>(use: (data: Data) => R | Promise<R>, saves: (result: R) => boolean = () => true): Promise<R> =>
-    exclusive(async () => {
-      await acquire();
-      try {
-        const data = load();
-        const result = await use(data);
-        if (saves(result)) save(data);
-        return result;
-      } finally {
-        release();
-      }
-    });
-
-  /** A private memory store filled from the file. The memory adapter checks names, cursors, and the read-before-write rule. */
-  const snapshot = async (data: Data): Promise<Store> => {
-    const store = createMemoryStore({ region });
-    for (const [collection, rows] of data.tables) for (const [id, row] of rows) await store.put(collection, id, row.doc);
-    return store;
-  };
-
-  async function transaction<R>(fn: (tx: StoreOps) => Promise<R>): Promise<R> {
-    for (let attempt = 0; attempt < MAX_TRANSACTION_ATTEMPTS; attempt++) {
-      const data = load();
-      const seen = new Map<string, { collection: string; id: string; v: number }>();
-      const writes: Write[] = [];
-      const note = (collection: string, id: string) => {
-        const key = `${collection}/${id}`;
-        if (!seen.has(key)) seen.set(key, { collection, id, v: data.tables.get(collection)?.get(id)?.v ?? 0 });
-      };
-      const result = await (await snapshot(data)).transaction(async (tx) => {
-        seen.clear();
-        writes.length = 0;
-        return fn({
-          async get<T extends Doc>(collection: string, id: string) {
-            const found = await tx.get<T>(collection, id);
-            note(collection, id);
-            return found;
-          },
-          async put(collection, id, doc) {
-            await tx.put(collection, id, doc);
-            writes.push({ collection, id, doc: copy(doc) });
-          },
-          async delete(collection, id) {
-            await tx.delete(collection, id);
-            writes.push({ collection, id, doc: null });
-          },
-          async query<T extends Doc>(collection: string, query?: Query): Promise<Page<T>> {
-            const page = await tx.query<T>(collection, query);
-            for (const item of page.items) note(collection, item.id);
-            return page;
-          },
-        });
-      });
-      if (seen.size === 0 && writes.length === 0) return result;
-      const unchanged = await locked(
-        (fresh) => {
-          for (const { collection, id, v } of seen.values()) if ((fresh.tables.get(collection)?.get(id)?.v ?? 0) !== v) return false;
-          for (const write of writes) apply(fresh, write);
-          return true;
-        },
-        (ok) => ok && writes.length > 0,
-      );
-      if (unchanged) return result;
-    }
-    throw new StoreConflictError(`transaction kept conflicting after ${MAX_TRANSACTION_ATTEMPTS} attempts`);
-  }
-
+  migrateStoreFile(path);
+  const store = identityStore({ ...rest, path });
   return {
-    region,
-    async get<T extends Doc>(collection: string, id: string) {
-      assertCollection(collection);
-      assertId(id);
-      const row = load().tables.get(collection)?.get(id);
-      return row ? copy(row.doc as T) : null;
-    },
-    async query<T extends Doc>(collection: string, query?: Query) {
-      return (await snapshot(load())).query<T>(collection, query);
-    },
-    async put(collection, id, doc) {
-      assertCollection(collection);
-      assertId(id);
-      const stored = copy(doc);
-      await locked((data) => apply(data, { collection, id, doc: stored }));
-    },
-    async delete(collection, id) {
-      assertCollection(collection);
-      assertId(id);
-      await locked((data) => apply(data, { collection, id, doc: null }));
-    },
-    transaction,
+    region: store.region,
+    get: (collection, id) => store.get(collection, id),
+    query: (collection, query) => store.query(collection, query),
+    put: (collection, id, doc) => again(waitMs, () => store.put(collection, id, doc)),
+    delete: (collection, id) => again(waitMs, () => store.delete(collection, id)),
+    transaction: (fn) => again(waitMs, () => store.transaction(fn)),
   };
 }
 
-/** Blobs kept as files under `dir`. File names are key hashes, so no key escapes the folder. */
-export function createFileBlobs(dir: string, options: AdapterOptions = {}): Blobs {
-  mkdirSync(dir, { recursive: true });
-  const path = (key: string) => join(dir, createHash("sha256").update(key).digest("hex"));
-  const need = (key: string) => {
-    if (key === "") throw new Error("blob key must not be empty");
-  };
-  const now = options.now ?? Date.now;
-  // The version names the stored bytes.
-  const versionOf = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");
-  const typeOf = (key: string) => (existsSync(`${path(key)}.type`) ? readFileSync(`${path(key)}.type`, "utf8") || undefined : undefined);
-  const read = (key: string) => (existsSync(path(key)) ? new Uint8Array(readFileSync(path(key))) : null);
+/** The blob files of 0.8.0 are `<dir>/blobs/<sha256 of the key>`, with an optional `.type` file. Every key is `sha256-<hex of the bytes>`. */
+async function migrateBlobs(dir: string, blobs: Blobs) {
+  const root = join(dir, "blobs");
+  if (!existsSync(root)) return;
+  for (const name of readdirSync(root)) {
+    if (!/^[0-9a-f]{64}$/.test(name)) continue;
+    // One bad file must not stop the others, or every later blob call. A file that fails stays in place.
+    try {
+      const file = join(root, name);
+      const data = new Uint8Array(readFileSync(file));
+      const key = `sha256-${createHash("sha256").update(data).digest("hex")}`;
+      // Only a file that the old adapter wrote for this key. Any other file is not ours to move or delete.
+      if (createHash("sha256").update(key).digest("hex") !== name) continue;
+      let contentType: string | undefined;
+      try {
+        contentType = readFileSync(`${file}.type`, "utf8") || undefined;
+      } catch {}
+      await blobs.put(key, data, { contentType, ifNoneMatch: "*" });
+      if (!(await blobs.head(key))) continue;
+      rmSync(file, { force: true });
+      rmSync(`${file}.type`, { force: true });
+    } catch {}
+  }
+}
+
+/** Blobs kept as files under `<dir>/blobs`. It is the file adapter of `agentic-identity`. `signedUrl` needs `urlBase` and `urlSecret`. */
+export function createFileBlobs(dir: string, options: Omit<FileBlobsOptions, "dir"> = {}): Blobs {
+  const blobs = identityBlobs({ ...options, dir });
+  let ready: Promise<void> | undefined;
+  const migrated = () => (ready ??= migrateBlobs(dir, blobs));
   return {
-    region: options.region === undefined ? "unknown" : parseRegion(options.region),
-    // Every step here is synchronous, so the check and the write cannot interleave with another caller in this process.
-    async put(key, data, opts) {
-      need(key);
-      assertBlobPutOptions(opts);
-      const current = read(key);
-      if (opts?.ifNoneMatch === "*" && current !== null) return null;
-      if (opts?.ifMatch !== undefined && (current === null || versionOf(current) !== opts.ifMatch)) return null;
-      const temp = `${path(key)}.${randomUUID()}.tmp`;
-      writeFileSync(temp, data);
-      renameSync(temp, path(key));
-      if (opts?.contentType) writeFileSync(`${path(key)}.type`, opts.contentType);
-      else rmSync(`${path(key)}.type`, { force: true });
-      return { version: versionOf(data) };
-    },
-    async get(key) {
-      need(key);
-      const data = read(key);
-      if (data === null) return null;
-      const type = typeOf(key);
-      return { data, version: versionOf(data), ...(type ? { contentType: type } : {}) };
-    },
-    async head(key) {
-      need(key);
-      const data = read(key);
-      if (data === null) return null;
-      const type = typeOf(key);
-      return { size: data.length, version: versionOf(data), ...(type ? { contentType: type } : {}) };
-    },
-    async delete(key) {
-      need(key);
-      rmSync(path(key), { force: true });
-      rmSync(`${path(key)}.type`, { force: true });
-    },
-    /** A local path with its expiry. Nothing serves or checks it: it exists so the port is whole. */
-    async signedUrl(key, opts) {
-      need(key);
-      assertResponseHeaders(opts);
-      if (!Number.isInteger(opts.expiresInSeconds) || opts.expiresInSeconds < 1 || opts.expiresInSeconds > 604800) {
-        throw new RangeError("expiresInSeconds must be an integer from 1 to 604800");
-      }
-      const extra = [opts.responseContentDisposition, opts.responseContentType].map((v) => (v === undefined ? "" : encodeURIComponent(v)));
-      return `file://${path(key)}?method=${opts.method}&expires=${now() + opts.expiresInSeconds * 1000}&d=${extra[0]}&t=${extra[1]}`;
-    },
+    region: blobs.region,
+    put: async (key, data, opts) => (await migrated(), blobs.put(key, data, opts)),
+    get: async (key) => (await migrated(), blobs.get(key)),
+    head: async (key) => (await migrated(), blobs.head(key)),
+    delete: async (key) => (await migrated(), blobs.delete(key)),
+    signedUrl: (key, opts) => blobs.signedUrl(key, opts),
   };
 }

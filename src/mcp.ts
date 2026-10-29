@@ -121,7 +121,7 @@ export function createMcpServer({ service, author = { kind: "agent", name: "mcp-
 export async function startMcp(options: { dir?: string; author?: Principal; live?: LiveOptions } = {}): Promise<void> {
   if (options.live) return startLiveMcp(options.live);
   const dir = options.dir ?? process.env.SLIDES_DIR ?? ".slides";
-  const service = createService({ store: createFileStore(dir), blobs: createFileBlobs(join(dir, "blobs")) });
+  const service = createService({ store: createFileStore(dir), blobs: createFileBlobs(dir) });
   await createMcpServer({ service, author: options.author }).connect(new StdioServerTransport());
 }
 
