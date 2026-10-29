@@ -2,20 +2,16 @@
 
 This file lists the notable changes to this project, by version.
 
-## Unreleased
-
-### Breaking changes
-
-- `agentic-identity` is now `^0.4.0`. A grant belongs to a kind and an id. A person and an agent with
-  the same id hold separate roles. A grant that a host made under the old key does not carry over. This
-  includes the owner role, so a deck shared through the old keys has no owner after the upgrade. There
-  is no migration. This package makes no grant itself: its roles come from `SLIDES_TOKENS`, and it has
-  no command that deletes a deck. A host that shares decks must call `deleteResource` when it deletes one.
-
 ## 0.2.0 - 2026-10-29
 
 ### Breaking changes
 
+- `agentic-identity` is ^0.4.0 in this release. A grant belongs to a kind and an id. A person and an agent
+  with the same id hold separate roles. A grant that a host made under an old key is not used. This
+  includes the owner role, so a deck shared through the old keys has no owner after the upgrade. There
+  is no migration. This package makes no grant. Its roles come from `SLIDES_TOKENS`. It has no command
+  that deletes a deck. A host that shares decks must call `deleteResource` when it deletes one. If the
+  call fails, the host must run it again until it completes.
 - The Worker entry is now `src/live-worker.ts`. `wrangler.jsonc` adds the `SYNC_ROOM` Durable Object
   binding and its `v1` migration. Deploy with the new `wrangler.jsonc`. A Worker that lacks the
   binding cannot serve live rooms, and `POST /decks/:deck/checkpoint` fails with a server error.
@@ -43,7 +39,7 @@ This file lists the notable changes to this project, by version.
 - The package depends on `agentic-realtime` ^0.2.0 for live rooms. This package does not call the methods
   `revoke`, `updateRole`, `roleFor`, `erase`, `exportHistory`, and `attribution` of the `Realtime` port yet.
   A live room cannot revoke a token or change its role in this release.
-- `agentic-identity` moves from ^0.2.0 to ^0.4.0.
+- `agentic-identity` moves from ^0.2.0 to ^0.4.0. See the breaking changes above.
 
 ## 0.1.0 - 2026-10-29
 

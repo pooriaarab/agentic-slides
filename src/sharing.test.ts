@@ -37,6 +37,8 @@ describe("sharing with agentic-identity 0.4", () => {
 
     expect((await sharing.can(ctx("kit", "human"), "read", id)).allowed).toBe(false);
     expect((await sharing.can(ctx("kit", "agent"), "read", id)).allowed).toBe(false);
+    // The erase touches sharing data only. The deck stays.
+    await expect(decks.outline(id)).resolves.toMatchObject({ title: "Plan" });
     await sharing.createResource(ctx("bo", "human"), { id, type: "deck" });
     const grants = (await sharing.listGrants(ctx("bo", "human"), id)).grants;
     expect(grants.map((g) => `${g.subjectKind}:${g.subjectId}:${g.role}`)).toEqual(["human:bo:owner"]);
