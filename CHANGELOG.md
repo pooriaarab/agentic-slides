@@ -6,15 +6,16 @@ This file lists the notable changes to this project, by version.
 
 ### Breaking changes
 
+The HTTP API, the SDK, the CLI, and the MCP server do not change.
+
 - Run `npm run build` before `wrangler deploy` or `wrangler dev`. Without `dist/ui`, Wrangler stops with an error
   that names `assets.directory`. See "Changed".
-- The HTTP API, the SDK, the CLI, and the MCP server do not change.
 
 ### Added
 
 - A web UI at `/` on the Worker, built on `agentic-design`: deck list, slide sorter, slide canvas, present
   mode, live presence, and an agent mark on slides that an agent edited. `npm run build` writes it to `dist/ui`.
-- `GET /api/v1/slides/decks` and `client.listDecks()` list the decks, newest edit first, with the last editor of each. They page with a cursor. A deck is listed after its next edit. A deck that nobody edits after you upgrade to 0.5.0 is not listed, but its data is not lost: edit it once to list it. `agentic-slides/client` also exports the `DeckSummary` and `SlideOutline` types.
+- `GET /api/v1/slides/decks` and `client.listDecks()` list the decks, newest edit first, with the last editor of each. They page with a cursor. A new or edited deck is listed at once. A deck that nobody edits after you upgrade to 0.5.0 is not listed, but its data is not lost: edit it once to list it. `agentic-slides/client` also exports the `DeckSummary` and `SlideOutline` types.
 - `npm run e2e`: Playwright tests of the UI against `wrangler dev`, an axe WCAG 2.2 AA check of each view
   in light and dark, and `npm run e2e:screenshots` for the screenshots in `docs/screenshots`.
 - The room route accepts the token as the WebSocket subprotocol `bearer.<token>`, for browsers.
