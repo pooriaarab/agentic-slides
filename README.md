@@ -7,7 +7,7 @@
 
 Build and present slide decks with people and agents.
 
-> Status: early, version 0.2.0. The deck library, the HTML render, the CLI, the MCP server,
+> Status: early. The deck library, the HTML render, the CLI, the MCP server,
 > PDF export, the HTTP API, and live rooms work. ODP and PPTX export are not ready yet.
 
 ## Install

@@ -8,10 +8,12 @@ This file lists the notable changes to this project, by version.
 
 - The Worker entry is now `src/live-worker.ts`. `wrangler.jsonc` adds the `SYNC_ROOM` Durable Object
   binding and its `v1` migration. Deploy with the new `wrangler.jsonc`. A Worker that lacks the
-  binding cannot serve live rooms.
-- `agentic-identity` moves from ^0.2.0 to ^0.3.0. A project that pins `agentic-identity` to 0.2
-  must move to 0.3 to install this version.
-- The exports of `agentic-slides` did not change. The new `agentic-slides/live` export is added.
+  binding cannot serve live rooms, and `POST /decks/:deck/checkpoint` fails with a server error.
+- The token setting `SLIDES_TOKENS` reads the text after the last `;` as the role. A principal can
+  no longer hold a `;`. An entry such as `human:a;b` is refused with a configuration error.
+- `SlidesErrorCode` has three new codes: `FORBIDDEN`, `INVALID_UPDATE`, and `LIVE_UNAVAILABLE`. A
+  `switch` that must cover every code needs a case for each new code.
+- The export names of `agentic-slides` did not change. The `agentic-slides/live` export is new.
 
 ### Added
 
@@ -24,7 +26,7 @@ This file lists the notable changes to this project, by version.
 
 ### Changed
 
-- The package depends on `agentic-realtime` ^0.1.0 for live rooms. `agentic-identity` is ^0.3.0.
+- The package depends on `agentic-realtime` ^0.1.0 for live rooms. `agentic-identity` moves from ^0.2.0 to ^0.3.0.
 
 ## 0.1.0 - 2026-10-29
 
