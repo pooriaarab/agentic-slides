@@ -57,8 +57,57 @@ export interface PdfExport {
   warnings: string[];
 }
 
+/** The role that a person or an agent holds on a deck. */
+export type Role = "owner" | "editor" | "commenter" | "viewer";
+
+/** Who holds a role. A person (`human`) and an agent (`agent`) with one id are two subjects. */
+export interface Subject {
+  kind: "human" | "agent";
+  id: string;
+}
+
 export interface Me extends Principal {
   role: "editor" | "viewer";
+  /** What this token holds roles as. Give it to an owner who shares a deck with you. */
+  subject: Subject | null;
+}
+
+export interface Grant {
+  resourceId: string;
+  subjectKind: Subject["kind"];
+  subjectId: string;
+  role: Role;
+}
+
+export interface InviteSummary {
+  id: string;
+  resourceId: string;
+  role: Role;
+  for: "email" | "handle";
+  handle?: string;
+  expiresAt?: number;
+  acceptedAt?: number;
+}
+
+export interface LinkSummary {
+  id: string;
+  role: Role;
+  signedInOnly: boolean;
+  expiresAt: number | null;
+  revoked: boolean;
+}
+
+/** Who can reach a deck. A link token and an invite email are never in it. */
+export interface Access {
+  grants: Grant[];
+  invites: InviteSummary[];
+  links: LinkSummary[];
+  /** Pass it as `cursor` for the next page of grants. */
+  nextCursor?: string;
+  /** More invites exist than this page holds. Pass it as `inviteCursor`. */
+  nextInviteCursor?: string;
+  /** More links exist than this page holds. Pass it as `linkCursor`. */
+  nextLinkCursor?: string;
 }
 
 export interface Health {
@@ -83,8 +132,8 @@ export function createClient({ baseUrl, token, fetch: send = (...args) => global
   const root = `${baseUrl.replace(/\/+$/, "")}/api/v1/slides`;
   const seg = encodeURIComponent;
 
-  async function call(method: string, path: string, options: CallOptions & { body?: unknown; raw?: Uint8Array; root?: string } = {}): Promise<Response> {
-    const headers: Record<string, string> = { authorization: `Bearer ${token}` };
+  async function call(method: string, path: string, options: CallOptions & { body?: unknown; raw?: Uint8Array; root?: string; headers?: Record<string, string> } = {}): Promise<Response> {
+    const headers: Record<string, string> = { authorization: `Bearer ${token}`, ...options.headers };
     let body: BodyInit | undefined;
     if (options.raw) {
       headers["content-type"] = "application/octet-stream";
@@ -139,6 +188,28 @@ export function createClient({ baseUrl, token, fetch: send = (...args) => global
       const sent = await json<{ pdfBase64: string; warnings: string[] }>(call("GET", `/decks/${seg(deck)}/export?envelope=json`, options));
       return { bytes: fromBase64(sent.pdfBase64), warnings: sent.warnings };
     },
+    /** Who can reach the deck. Only an owner may ask. */
+    access: (deck: string, input: { limit?: number; cursor?: string; inviteCursor?: string; linkCursor?: string } = {}, options: CallOptions = {}) => {
+      const query = new URLSearchParams(Object.entries(input).flatMap(([key, value]) => (value === undefined ? [] : [[key, String(value)]])));
+      return json<Access>(call("GET", `/decks/${seg(deck)}/access${query.size ? `?${query}` : ""}`, options));
+    },
+    /** Give a person or an agent a role on the deck. Only an owner may. */
+    grant: (deck: string, input: { subject: Subject; role: Role }, options: CallOptions = {}) =>
+      done(call("POST", `/decks/${seg(deck)}/grants`, { ...options, body: { subjectKind: input.subject.kind, subjectId: input.subject.id, role: input.role } })),
+    /** Take a role away. The last owner cannot be removed. */
+    revoke: (deck: string, subject: Subject, options: CallOptions = {}) =>
+      done(call("DELETE", `/decks/${seg(deck)}/grants?${new URLSearchParams({ subjectKind: subject.kind, subjectId: subject.id })}`, options)),
+    /** Invite a person by `email` or an agent by `handle`. It sends no message: give the id to the invitee. */
+    invite: (deck: string, input: { role: Role; email?: string; handle?: string; expiresInMs?: number }, options: CallOptions = {}) =>
+      json<{ id: string }>(call("POST", `/decks/${seg(deck)}/invites`, { ...options, body: input })),
+    /** Accept an invite by handle. The handle is the name of the token. */
+    acceptInvite: (id: string, options: CallOptions = {}) => done(call("POST", "/invites/accept", { ...options, body: { id } })),
+    /** Make a share link. The token comes back once: keep it. */
+    createShareLink: (deck: string, input: { role: Role; expiresInMs?: number; signedInOnly?: boolean }, options: CallOptions = {}) =>
+      json<{ id: string; token: string }>(call("POST", `/decks/${seg(deck)}/links`, { ...options, body: input })),
+    revokeShareLink: (deck: string, link: string, options: CallOptions = {}) => done(call("DELETE", `/decks/${seg(deck)}/links/${seg(link)}`, options)),
+    /** Read the outline of a deck with a share link token. This client's own token is sent too, and must be valid. */
+    readShared: (deck: string, linkToken: string, options: CallOptions = {}) => json<DeckOutline>(call("GET", `/shared/${seg(deck)}`, { ...options, headers: { "x-link-token": linkToken } })),
     /** The Yjs state of the deck. A live room reads it. */
     state: async (deck: string, options: CallOptions = {}) => new Uint8Array(await (await call("GET", `/decks/${seg(deck)}/state`, options)).arrayBuffer()),
     /** Save a Yjs update. The server checks it, and it can refuse it. */
