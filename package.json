@@ -1,6 +1,6 @@
 {
   "name": "agentic-slides",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Build and present slide decks with people and agents.",
   "keywords": [
     "slides",
@@ -53,6 +53,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist",
+    "prepack": "npm run build",
     "ci:local": "npm run build && npm run typecheck && npm test"
   },
   "dependencies": {

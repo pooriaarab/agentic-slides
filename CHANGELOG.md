@@ -2,7 +2,16 @@
 
 This file lists the notable changes to this project, by version.
 
-## Unreleased
+## 0.2.0 - 2026-10-29
+
+### Breaking changes
+
+- The Worker entry is now `src/live-worker.ts`. `wrangler.jsonc` adds the `SYNC_ROOM` Durable Object
+  binding and its `v1` migration. Deploy with the new `wrangler.jsonc`. A Worker that lacks the
+  binding cannot serve live rooms.
+- `agentic-identity` moves from ^0.2.0 to ^0.3.0. A project that pins `agentic-identity` to 0.2
+  must move to 0.3 to install this version.
+- The exports of `agentic-slides` did not change. The new `agentic-slides/live` export is added.
 
 ### Added
 
@@ -15,7 +24,7 @@ This file lists the notable changes to this project, by version.
 
 ### Changed
 
-- `agentic-identity` is ^0.3.0. The package depends on `agentic-realtime`.
+- The package depends on `agentic-realtime` ^0.1.0 for live rooms. `agentic-identity` is ^0.3.0.
 
 ## 0.1.0 - 2026-10-29
 
