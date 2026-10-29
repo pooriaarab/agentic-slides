@@ -155,7 +155,11 @@ export function createApp({ service, auth, live, principals = [] }: AppDeps) {
     return c.json(await service.list({ limit, cursor }));
   });
   api.delete("/decks/:deck", async (c) => {
-    await service.deleteDeck(c.req.param("deck"), c.get("author"));
+    const id = c.req.param("deck");
+    // Clear the live room first: it keeps the deck state, and a new deck with the same id must not read it. A missing deck is a 404 before this.
+    await service.exists(id);
+    if (live) await live(c.env).erase(id);
+    await service.deleteDeck(id, c.get("author"));
     return c.json({ ok: true });
   });
   api.get("/decks/:deck", async (c) => c.json(await service.outline(c.req.param("deck"))));

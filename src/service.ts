@@ -178,7 +178,10 @@ export function createService({ store, blobs }: Ports, overrides: Partial<Limits
       return { decks, nextCursor: found.nextCursor };
     },
 
-    /** Remove the deck and its list entry. Images stay in the blob store: other decks can use the same image. */
+    /**
+     * Remove the deck and its list entry. Images stay in the blob store: other decks can use the same image.
+     * The live room and the sharing grants of the deck are not here. The HTTP route clears the room. A host that shares decks must remove the grants too.
+     */
     async deleteDeck(id: string, author: Principal): Promise<void> {
       checkAuthor(author);
       checkId(id);
