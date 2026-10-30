@@ -28,7 +28,7 @@ export function subjectOf(caller: Caller): Subject | null {
 }
 
 /**
- * The principal id of a token in a room. `agentic-realtime` 0.4 takes ids of the `agentic-identity` rule, which has no colon, so the
+ * The principal id of a token in a room. `agentic-realtime` takes ids that follow the `agentic-identity` rule, which has no colon, so the
  * id is `<kind>.<name>`. No kind has a dot, so the first dot always ends the kind, and two kinds never give the same id.
  */
 export function roomPrincipalId(kind: string, name: string): string {
@@ -36,8 +36,7 @@ export function roomPrincipalId(kind: string, name: string): string {
 }
 
 /**
- * True when the room takes the id of a token. A longer id is refused, so no socket of it can exist. `agentic-realtime` checks the
- * same rule with the `agentic-identity` that this package uses.
+ * True when the room takes the id of a token. A longer id is refused, so no socket of it can exist. The room can use a different version of `agentic-identity` to check the id.
  */
 export function roomPrincipalFits(kind: string, name: string): boolean {
   try {
