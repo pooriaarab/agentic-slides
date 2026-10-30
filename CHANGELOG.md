@@ -2,6 +2,17 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.14.0 - 2026-10-30
+
+### Added
+
+- Account export and erase accept `resourceType` and `collection`. The defaults stay `deck` and `decks`.
+- An optional `contentSource` exports JSON content and erases content in external storage. Callback errors reject the call. An erase can retry with the sharing records that remain.
+
+### Fixed
+
+- Account methods reject invalid storage options before storage access. External exports reject non-JSON content with the deck id.
+
 ## 0.13.3 - 2026-10-29
 
 ### Changed
