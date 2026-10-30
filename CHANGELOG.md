@@ -2,6 +2,13 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.14.3 - 2026-10-30
+
+### Changed
+
+- Allow agentic-design 0.10, agentic-identity 0.11, and agentic-realtime 0.6 while keeping the earlier supported versions.
+- Test the current releases of these packages and agentic-formats in the local gate.
+
 ## 0.14.2 - 2026-10-30
 
 ### Added

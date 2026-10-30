@@ -7,7 +7,7 @@
 
 Build and present slide decks with people and agents.
 
-> Status: 0.14.2, early. The deck library, the HTML render, the CLI, the MCP server,
+> Status: 0.14.3, early. The deck library, the HTML render, the CLI, the MCP server,
 > PDF export, the HTTP API, live rooms, and the web UI work. The `agentic-slides/formats` library maps a deck to and from ODP and PPTX. The CLI, the MCP server, and the HTTP API do not use it yet.
 
 ## Install

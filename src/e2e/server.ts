@@ -53,7 +53,7 @@ export async function worker(tokens: string): Promise<Server> {
       child.stdout?.on("data", (chunk: Buffer) => (log += chunk));
       child.stderr?.on("data", (chunk: Buffer) => (log += chunk));
       for (let i = 0; i < 180; i++) {
-        if (await fetch(`${url}/health`).then((r) => r.ok, () => false)) return;
+        if (await fetch(`${url}/health`, { headers: { connection: "close" } }).then((r) => r.ok, () => false)) return;
         await new Promise((r) => setTimeout(r, 500));
       }
       throw new Error(`wrangler dev did not start:\n${log.slice(-2000)}`);
