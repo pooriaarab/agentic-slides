@@ -11,7 +11,7 @@ export const DECK_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 /** The kinds that are not roots of a chain. They hold roles as an agent that has their name. */
 const DELEGATED_KINDS = PRINCIPAL_KINDS.filter((kind) => !(SUBJECT_KINDS as readonly string[]).includes(kind));
 const DELEGATED_PREFIX = new RegExp(`^(${DELEGATED_KINDS.join("|")})_`);
-const SAFE_SUBJECT = /^[A-Za-z0-9_-]{1,128}$/;
+export const SAFE_SUBJECT = /^[A-Za-z0-9_-]{1,128}$/;
 
 /**
  * The subject that a token holds roles as. Only a person (`human`) and an agent with its own identity (`agent`) are roots in

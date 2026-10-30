@@ -322,6 +322,14 @@ describe("slidesAccount", () => {
     expect((await decks.outline("d")).slides[0]!.createdBy).toEqual({ kind: "agent_of_human", name: "erased" });
   });
 
+  it.each(["agent_of_human", "agent_of_agent", "user_token"] as const)("refuses unsafe %s subjects before storage access", async (kind) => {
+    for (const id of ["erased", "x".repeat(128 - kind.length), "a b"]) {
+      const subject = { kind, id };
+      await expect(slidesAccount.exportAccount(subject, { store: noAccess })).rejects.toMatchObject({ code: "INVALID_AUTHOR" });
+      await expect(slidesAccount.eraseAccount(subject, { store: noAccess })).rejects.toMatchObject({ code: "INVALID_AUTHOR" });
+    }
+  });
+
   it("refuses a bad subject", async () => {
     const { store } = await setup();
     await expect(slidesAccount.exportAccount({ kind: "human", id: "" }, { store })).rejects.toMatchObject({ code: "INVALID_AUTHOR" });

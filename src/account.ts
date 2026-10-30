@@ -5,7 +5,7 @@
 // (who changed a grant) belong to `agentic-identity`: the host exports and erases them with its own account step.
 import type { AccountPackage, AccountSubject } from "agentic-identity/account";
 import { PRINCIPAL_KINDS, MAX_OWNERS_ON_ERASE, SUBJECT_KINDS, createSharing, type Json, type Store, type Subject } from "agentic-identity";
-import { checkSubject, DECK, principalsOf } from "./access.js";
+import { checkSubject, DECK, principalsOf, SAFE_SUBJECT } from "./access.js";
 import { fromBase64, toBase64 } from "./bytes.js";
 import { Deck } from "./core/deck.js";
 import { fail, readPrincipal } from "./core/principal.js";
@@ -121,7 +121,7 @@ const authorsOf = (subject: Subject) => {
 /** The subject, checked. The name `erased` is the placeholder of an earlier erase, so no author of a subject has it: not the id, and not the name of a delegated token. */
 const subjectOf = (subject: AccountSubject): Subject => {
   const { kind, id } = subject ?? {};
-  if (!(PRINCIPAL_KINDS as readonly unknown[]).includes(kind) || typeof id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
+  if (!(PRINCIPAL_KINDS as readonly unknown[]).includes(kind) || typeof id !== "string" || !SAFE_SUBJECT.test(id)) {
     return fail("INVALID_AUTHOR", "subject needs a known kind and a safe id");
   }
   const checked = checkSubject(kind === "human" || kind === "agent" ? { kind, id } : { kind: "agent", id: `${kind}_${id}` });
