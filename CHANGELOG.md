@@ -2,6 +2,14 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.14.1 - 2026-10-30
+
+### Changed
+
+- Allow `agentic-design` 0.8 and 0.9, `agentic-identity` 0.9 and 0.10, and `agentic-realtime` 0.4.4 through 0.5. The ranges were `^0.8.0`, `^0.9.0`, and `^0.4.4`.
+- The lockfile tests `agentic-design` 0.9.0, `agentic-identity` 0.10.0, and `agentic-realtime` 0.5.0. The latter uses a separate copy of `agentic-identity` 0.9 until its dependency range changes.
+- This release does not test every combination in the allowed ranges.
+
 ## 0.14.0 - 2026-10-30
 
 ### Added
