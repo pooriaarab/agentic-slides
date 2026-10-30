@@ -8,6 +8,7 @@ This file lists the notable changes to this project, by version.
 
 - Export `renderPdf` from `agentic-slides/ui`. Host apps can download their current deck as PDF bytes without an internal import or a server.
 - Document the host PDF download, image map, warnings, and limits.
+- Load the PDF code on demand in the UI entry. Decode fonts with `atob`, so browsers need no Node globals.
 
 ## 0.14.1 - 2026-10-30
 

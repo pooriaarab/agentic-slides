@@ -329,7 +329,7 @@ const editor = mount(document.getElementById("slides")!, {
 
 ### Download a host deck as PDF
 
-The public UI entry exports `renderPdf`. It runs in the browser and needs no server.
+The public UI entry exports `renderPdf`. It runs in the browser and needs no server. The PDF code loads when you call it.
 Pass the current outline of the host document and a map of image references to PNG
 or JPEG bytes. The call returns `{ bytes: Uint8Array, warnings: string[] }`.
 

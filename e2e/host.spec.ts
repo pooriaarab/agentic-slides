@@ -35,6 +35,10 @@ test("a host page edits its own Yjs document with no request to a slides server,
     return body ? route.fulfill({ contentType: TYPES[extname(path)] ?? "application/octet-stream", body: Buffer.from(body) }) : route.fulfill({ status: 404 });
   });
 
+  // Older browsers have atob but no Uint8Array.fromBase64 or Node Buffer.
+  await page.addInitScript(() => {
+    Object.defineProperty(Uint8Array, "fromBase64", { value: undefined, configurable: true });
+  });
   await page.goto(`${ORIGIN}/`);
   await expect(page.getByRole("heading", { name: "Host deck" })).toBeVisible();
   await page.getByRole("button", { name: /^Text box 1/ }).first().click();

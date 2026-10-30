@@ -1,5 +1,5 @@
 declare module "*.ttf" {
-  /** The file bytes. A bundler loader or a Worker rule supplies them. */
-  const bytes: Uint8Array | ArrayBuffer;
-  export default bytes;
+  /** Base64 from the bundler, or bytes from a Worker Data rule. */
+  const base64: string | Uint8Array | ArrayBuffer;
+  export default base64;
 }
