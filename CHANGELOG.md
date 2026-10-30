@@ -2,6 +2,13 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.14.5 - 2026-10-30
+
+### Fixed
+
+- Implement the identity account registry contract. Accept delegated principal kinds through their existing sharing keys and keep author kinds on erase.
+- Test a packed host with registry export, shared ownership, external content, live cleanup, and retries. Require identity 0.12 or later.
+
 ## 0.14.4 - 2026-10-30
 
 ### Changed
