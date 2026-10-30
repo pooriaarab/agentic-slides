@@ -18,6 +18,7 @@ async function setup() {
 }
 
 const noAccess: Store = {
+  region: "unknown",
   get: async () => { throw new Error("unexpected store access"); },
   query: async () => { throw new Error("unexpected store access"); },
   put: async () => { throw new Error("unexpected store access"); },
