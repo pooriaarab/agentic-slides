@@ -1,6 +1,7 @@
 import { createMemoryBlobs, createMemoryStore, createSharing, type PrincipalContext, type Store, type Subject } from "agentic-identity";
 import { describe, expect, it, vi } from "vitest";
-import { slidesAccount } from "./account.js";
+import { createAccountRegistry, type AccountPackage } from "agentic-identity/account";
+import { slidesAccount, type SlidesAccountDeps } from "./account.js";
 import { createService } from "./service.js";
 
 const ana: Subject = { kind: "human", id: "ana" };
@@ -29,6 +30,32 @@ const noAccess: Store = {
 const exportOf = (store: Store, subject: Subject) => slidesAccount.exportAccount(subject, { store });
 
 describe("slidesAccount", () => {
+  it.each(["agent_of_human", "agent_of_agent", "user_token"] as const)("registers and cleans up %s without changing co-owner data on retry", async (kind) => {
+    const { store, decks, sharing, make } = await setup();
+    const subject = { kind, id: "eve" };
+    const owner: Subject = { kind: "agent", id: `${kind}_eve` };
+    await make("mine", owner, "agent");
+    await make("shared", ana);
+    await sharing.grant(ctx(ana), "shared", owner, "owner");
+    await decks.addSlides("shared", { outline: "# Authored", author: { kind, name: "eve" } });
+    await make("theirs", ana);
+    await decks.addSlides("theirs", { outline: "# External author", author: { kind, name: "eve" } });
+    const pkg: AccountPackage<SlidesAccountDeps> = slidesAccount;
+    const registry = createAccountRegistry().register(pkg, { store });
+    const out = await registry.export(subject);
+    expect(out.manifest.apps[0]!.files.map((f) => f.path)).toContain("decks.json");
+    expect((await pkg.exportAccount(subject, { store })).authored.length).toBeGreaterThan(0);
+    const first = await registry.erase(subject, store, { actor: null });
+    expect(first.ok).toBe(true);
+    expect(first.counts.slides).toMatchObject({ decks: 1, grants: 2 });
+    expect(first.counts.slides!.authored).toBeGreaterThan(0);
+    const remaining = await decks.outline("shared");
+    expect(remaining.slides[0]!.createdBy).toEqual({ kind, name: "erased" });
+    expect((await sharing.can(ctx(ana), "write", "shared")).role).toBe("owner");
+    expect((await registry.erase(subject, store, { actor: null })).counts.slides).toEqual({ decks: 0, grants: 0, authored: 0 });
+    expect(await decks.outline("shared")).toEqual(remaining);
+  });
+
   it.each([new Uint8Array([1, 2]), undefined, new Date(), 1n, NaN, { nested: undefined }])("rejects non-JSON external content: %s", async (content) => {
     const { store, make } = await setup();
     await make("room", ana);
@@ -293,6 +320,14 @@ describe("slidesAccount", () => {
     await slidesAccount.eraseAccount(agent, { store });
 
     expect((await decks.outline("d")).slides[0]!.createdBy).toEqual({ kind: "agent_of_human", name: "erased" });
+  });
+
+  it.each(["agent_of_human", "agent_of_agent", "user_token"] as const)("refuses unsafe %s subjects before storage access", async (kind) => {
+    for (const id of ["erased", "x".repeat(128 - kind.length), "a b"]) {
+      const subject = { kind, id };
+      await expect(slidesAccount.exportAccount(subject, { store: noAccess })).rejects.toMatchObject({ code: "INVALID_AUTHOR" });
+      await expect(slidesAccount.eraseAccount(subject, { store: noAccess })).rejects.toMatchObject({ code: "INVALID_AUTHOR" });
+    }
   });
 
   it("refuses a bad subject", async () => {

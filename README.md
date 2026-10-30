@@ -7,7 +7,7 @@
 
 Build and present slide decks with people and agents.
 
-> Status: 0.14.4, early. The deck library, the HTML render, the CLI, the MCP server,
+> Status: 0.14.5, early. The deck library, the HTML render, the CLI, the MCP server,
 > PDF export, the HTTP API, live rooms, and the web UI work. The `agentic-slides/formats` library maps a deck to and from ODP and PPTX. The CLI, the MCP server, and the HTTP API do not use it yet.
 
 ## Install
@@ -450,10 +450,21 @@ A host that must export or erase the data of one person or agent uses `agentic-s
 
 ```ts
 import { slidesAccount } from "agentic-slides/account";
+import { createAccountRegistry } from "agentic-identity/account";
+
+const registry = createAccountRegistry().register(slidesAccount, { store });
+const archive = await registry.export({ kind: "human", id: "ana" });
 
 const data = await slidesAccount.exportAccount({ kind: "human", id: "ana" }, { store });
 const counts = await slidesAccount.eraseAccount({ kind: "human", id: "ana" }, { store });
 ```
+
+The contributor implements `AccountPackage<SlidesAccountDeps>` in identity 0.12.
+The registry passes dependencies through. A host needs no collection adapter.
+Delegated kinds (`agent_of_human`, `agent_of_agent`, `user_token`) use their
+existing `agent` sharing key, `<kind>_<id>`. The key must fit in 128 characters.
+Their author kind stays the same. Human and agent subjects keep their existing keys.
+The registry audit uses the subject id without its kind. Use unique ids across kinds.
 
 The export has three collections: `decks` (decks the subject owns, with the outline), `grants` (roles the subject holds), and `authored` (slides and elements the subject wrote in decks of other people). The erase deletes each deck where the subject is the only owner. It removes the other roles. It replaces the subject as author with `erased` and keeps the author kind. The outline of an owned deck is exported as it is, with the author names of other people in it. A second erase counts zero. Run it with writes stopped. The plug-in covers authors whose names are safe subject ids (letters, digits, `_`, `-`, up to 128). A record of another author stays. Pass `live` (the `erase` of the live rooms) so the erase clears the room of each deck that it deletes or changes. A room keeps its own copy of the deck and its authors. Without `live`, the host must clear those rooms, or a room can save the old names again. Run `migrateGrants` of `agentic-identity` before the erase: a grant from an old store has no subject kind, and the erase cannot find it. Audit rows of grant changes belong to `agentic-identity`. When a deck has two owners, the erase revokes the grant of the subject through `agentic-identity`, and that writes one audit row. The removal of an editor or viewer role writes none. Erase the audit rows after this plug-in.
 

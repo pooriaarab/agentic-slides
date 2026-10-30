@@ -1,10 +1,11 @@
 // The account plug-in of agentic-slides: a host calls `exportAccount` and `eraseAccount` and never reads the storage layout.
-// The shape is the one of the other apps. It is not the `AccountApp` of `agentic-identity/account` (files of one subject). A host that uses `AccountApp` writes a small adapter. It moves to a package contract when identity ships one.
+// The contributor implements the account registry contract of agentic-identity.
 //
 // A deck is owned through its sharing record, so the plug-in reads the grants of the subject first. Identity audit rows
 // (who changed a grant) belong to `agentic-identity`: the host exports and erases them with its own account step.
-import { MAX_OWNERS_ON_ERASE, SUBJECT_KINDS, createSharing, type Json, type Store, type Subject } from "agentic-identity";
-import { checkSubject, DECK, principalsOf } from "./access.js";
+import type { AccountPackage, AccountSubject } from "agentic-identity/account";
+import { PRINCIPAL_KINDS, MAX_OWNERS_ON_ERASE, SUBJECT_KINDS, createSharing, type Json, type Store, type Subject } from "agentic-identity";
+import { checkSubject, DECK, principalsOf, SAFE_SUBJECT } from "./access.js";
 import { fromBase64, toBase64 } from "./bytes.js";
 import { Deck } from "./core/deck.js";
 import { fail, readPrincipal } from "./core/principal.js";
@@ -38,7 +39,7 @@ export interface SlidesContentSource {
 
 export type SlidesCollection = "decks" | "grants" | "authored";
 
-export interface SlidesAccount {
+export interface SlidesAccount extends AccountPackage<SlidesAccountDeps> {
   id: "slides";
   /**
    * Collections: `decks` (each deck the subject owns, with its outline), `grants` (each role the subject holds on a deck,
@@ -47,7 +48,7 @@ export interface SlidesAccount {
    * `authored` is empty. The host handles author records in external decks that stay.
    * It holds no format, version, or time: the host's manifest has the time.
    */
-  exportAccount(subject: Subject, deps: SlidesAccountDeps): Promise<Record<SlidesCollection, Record<string, Json>[]>>;
+  exportAccount(subject: AccountSubject, deps: SlidesAccountDeps): Promise<Record<SlidesCollection, Record<string, Json>[]>>;
   /**
    * Hard deletes each deck where the subject is the only owner, with its sharing records. It removes the other roles of the
    * subject, and it replaces the subject as author in the decks that stay with the name `erased` (the kind stays). Counts by
@@ -56,7 +57,7 @@ export interface SlidesAccount {
    * records. It does not scan the collection or change authors in external decks. Callback errors reject the call;
    * earlier changes can remain. The source must allow a repeat delete so the host can retry.
    */
-  eraseAccount(subject: Subject, deps: SlidesAccountDeps): Promise<Record<SlidesCollection, number>>;
+  eraseAccount(subject: AccountSubject, deps: SlidesAccountDeps): Promise<Record<SlidesCollection, number>>;
 }
 
 // Through JSON, so the records are what a file would hold: a key with no value is dropped, not left as `undefined`.
@@ -118,8 +119,12 @@ const authorsOf = (subject: Subject) => {
 };
 
 /** The subject, checked. The name `erased` is the placeholder of an earlier erase, so no author of a subject has it: not the id, and not the name of a delegated token. */
-const subjectOf = (subject: Subject): Subject => {
-  const checked = checkSubject(subject);
+const subjectOf = (subject: AccountSubject): Subject => {
+  const { kind, id } = subject ?? {};
+  if (!(PRINCIPAL_KINDS as readonly unknown[]).includes(kind) || typeof id !== "string" || !SAFE_SUBJECT.test(id)) {
+    return fail("INVALID_AUTHOR", "subject needs a known kind and a safe id");
+  }
+  const checked = checkSubject(kind === "human" || kind === "agent" ? { kind, id } : { kind: "agent", id: `${kind}_${id}` });
   return authorsOf(checked).some((p) => p.name === ERASED_NAME) ? fail("INVALID_AUTHOR", `"${ERASED_NAME}" is the placeholder of an erased author, not a subject`) : checked;
 };
 

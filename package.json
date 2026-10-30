@@ -1,6 +1,6 @@
 {
   "name": "agentic-slides",
-  "version": "0.14.4",
+  "version": "0.14.5",
   "description": "Build and present slide decks with people and agents.",
   "keywords": [
     "slides",
@@ -89,7 +89,7 @@
     "@noble/hashes": "^2.4.0",
     "agentic-design": ">=0.8.0 <1.0.0",
     "agentic-formats": ">=0.4.2 <1.0.0",
-    "agentic-identity": ">=0.9.0 <1.0.0",
+    "agentic-identity": ">=0.12.0 <1.0.0",
     "agentic-realtime": ">=0.4.4 <1.0.0",
     "hono": "^4.9.0",
     "lib0": "^0.2.119",
