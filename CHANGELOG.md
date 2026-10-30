@@ -6,7 +6,7 @@ This file lists the notable changes to this project, by version.
 
 ### Changed
 
-- `agentic-design` is now 0.8.x. The range moves from `^0.5.0` to `^0.8.0`. The range did not accept 0.8.0, so the agentic-* packages could not be installed together with one copy of `agentic-design`. At release time, 0.8.0 was the newest `agentic-design` on npm.
+- `agentic-design` is now 0.8.x. The range moves from `^0.5.0` to `^0.8.0`. The range did not accept 0.8.0. A project that uses agentic-design 0.8 with agentic-slides could not install one copy of `agentic-design` for both. At release time, 0.8.0 was the newest `agentic-design` on npm.
 - The npm `overrides` entry for `agentic-design` is removed. Version 0.8.0 asks for `zod` `^4.6.7` itself, so the override is not needed.
 - The build, the typecheck, the unit and render tests, and the end-to-end tests pass on `agentic-design` 0.8.0. The UI code and the render code did not need a change.
 
