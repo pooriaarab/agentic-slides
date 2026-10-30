@@ -1,5 +1,5 @@
 import { createMemoryBlobs, createMemoryStore, createSharing, type PrincipalContext, type Store, type Subject } from "agentic-identity";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { slidesAccount } from "./account.js";
 import { createService } from "./service.js";
 
@@ -20,6 +20,80 @@ async function setup() {
 const exportOf = (store: Store, subject: Subject) => slidesAccount.exportAccount(subject, { store });
 
 describe("slidesAccount", () => {
+  it("uses the configured resource type and collection for export and erase", async () => {
+    const { store, make } = await setup();
+    await make("custom", ana);
+    await make("default", ana);
+    await store.put("resources", "custom", { type: "presentation" });
+    await store.put("presentations", "custom", (await store.get("decks", "custom"))!);
+    await store.delete("decks", "custom");
+    const deps = { store, resourceType: "presentation", collection: "presentations" };
+    const out = await slidesAccount.exportAccount(ana, deps);
+    expect(out.decks).toMatchObject([{ id: "custom", outline: { title: "custom" } }]);
+    expect(out.grants).toEqual([{ resourceId: "custom", role: "owner" }]);
+    expect(await slidesAccount.eraseAccount(ana, deps)).toEqual({ decks: 1, grants: 1, authored: 0 });
+    expect(await store.get("presentations", "custom")).toBeNull();
+    expect(await store.get("resources", "custom")).toBeNull();
+    expect(await store.get("decks", "default")).not.toBeNull();
+  });
+
+  it("uses external content without reading or deleting the collection", async () => {
+    const { store, make } = await setup();
+    await make("room", ana);
+    const saved = await store.get("decks", "room");
+    const contentSource = {
+      exportContent: vi.fn(async () => ({ history: ["slide"] })),
+      eraseContent: vi.fn(async () => {}),
+    };
+    const guarded: Store = {
+      ...store,
+      get: (collection, id) => {
+        if (collection === "decks") throw new Error("collection read");
+        return store.get(collection, id);
+      },
+      query: (collection, query) => {
+        if (collection === "decks") throw new Error("collection scan");
+        return store.query(collection, query);
+      },
+    };
+    const deps = { store: guarded, contentSource };
+    expect((await slidesAccount.exportAccount(ana, deps)).decks).toEqual([
+      { id: "room", role: "owner", content: { history: ["slide"] } },
+    ]);
+    expect(contentSource.exportContent).toHaveBeenCalledWith("room");
+    expect(await slidesAccount.eraseAccount(ana, deps)).toEqual({ decks: 1, grants: 1, authored: 0 });
+    expect(contentSource.eraseContent).toHaveBeenCalledExactlyOnceWith("room");
+    expect(await store.get("decks", "room")).toEqual(saved);
+    expect(await store.get("resources", "room")).toBeNull();
+  });
+
+  it("keeps external content when another owner remains", async () => {
+    const { store, make, sharing } = await setup();
+    await make("shared", ana);
+    await sharing.grant(ctx(ana), "shared", { kind: "human", id: "bo" }, "owner");
+    const contentSource = {
+      exportContent: vi.fn(async () => null),
+      eraseContent: vi.fn(async () => {}),
+    };
+    expect(await slidesAccount.eraseAccount(ana, { store, contentSource })).toEqual({ decks: 0, grants: 1, authored: 0 });
+    expect(contentSource.eraseContent).not.toHaveBeenCalled();
+    expect(await store.get("resources", "shared")).not.toBeNull();
+  });
+
+  it("reports external failures and keeps sharing records so erase can resume", async () => {
+    const { store, make } = await setup();
+    await make("room", ana);
+    const contentSource = {
+      exportContent: vi.fn(async (): Promise<null> => { throw new Error("history failed"); }),
+      eraseContent: vi.fn(async (): Promise<void> => { throw new Error("delete failed"); }),
+    };
+    await expect(slidesAccount.exportAccount(ana, { store, contentSource })).rejects.toThrow("history failed");
+    await expect(slidesAccount.eraseAccount(ana, { store, contentSource })).rejects.toThrow("delete failed");
+    expect(await store.get("resources", "room")).not.toBeNull();
+    contentSource.eraseContent.mockResolvedValue(undefined);
+    expect(await slidesAccount.eraseAccount(ana, { store, contentSource })).toEqual({ decks: 1, grants: 1, authored: 0 });
+  });
+
   it("exports owned decks, grants, and authored records, and no deck of someone else", async () => {
     const { store, sharing, decks, make } = await setup();
     await make("mine", ana);

@@ -425,6 +425,37 @@ const counts = await slidesAccount.eraseAccount({ kind: "human", id: "ana" }, { 
 
 The export has three collections: `decks` (decks the subject owns, with the outline), `grants` (roles the subject holds), and `authored` (slides and elements the subject wrote in decks of other people). The erase deletes each deck where the subject is the only owner. It removes the other roles. It replaces the subject as author with `erased` and keeps the author kind. The outline of an owned deck is exported as it is, with the author names of other people in it. A second erase counts zero. Run it with writes stopped. The plug-in covers authors whose names are safe subject ids (letters, digits, `_`, `-`, up to 128). A record of another author stays. Pass `live` (the `erase` of the live rooms) so the erase clears the room of each deck that it deletes or changes. A room keeps its own copy of the deck and its authors. Without `live`, the host must clear those rooms, or a room can save the old names again. Run `migrateGrants` of `agentic-identity` before the erase: a grant from an old store has no subject kind, and the erase cannot find it. Audit rows of grant changes belong to `agentic-identity`. When a deck has two owners, the erase revokes the grant of the subject through `agentic-identity`, and that writes one audit row. The removal of an editor or viewer role writes none. Erase the audit rows after this plug-in.
 
+Set `resourceType` to change the sharing resource type (default `"deck"`). Set
+`collection` to change the collection of saved updates (default `"decks"`). These
+options apply to both account methods. The export collection names stay the same.
+
+A host can pass `contentSource` to use external content, such as room history:
+
+```ts
+const deps = {
+  store,
+  resourceType: "presentation",
+  collection: "presentations",
+  contentSource: {
+    exportContent: async (id: string) => rooms.exportHistory(id),
+    eraseContent: async (id: string) => rooms.delete(id),
+  },
+};
+const data = await slidesAccount.exportAccount({ kind: "human", id: "ana" }, deps);
+const counts = await slidesAccount.eraseAccount({ kind: "human", id: "ana" }, deps);
+```
+
+With `contentSource`, the plug-in does not read or change the content collection.
+Each owned deck has `content` (the JSON result of `exportContent`) in place of
+`outline`. The erase calls `eraseContent` only for decks with one owner. It then
+removes the local index and sharing records. Each completed content erase counts
+as one deck. `eraseContent` must be safe to repeat, even if the content is absent.
+A callback failure rejects the call. Earlier changes can remain; sharing records
+for a failed content erase stay so a later call can retry. With external content,
+`authored` is empty and its erase count is zero. The host must export and remove
+author names in external decks that stay. The `live` option still clears rooms
+after the sharing delete if the host supplies it.
+
 ## Features
 
 - Slides on a fixed 1280 by 720 space (16:9), kept in a Yjs document.

@@ -17,11 +17,23 @@ export const ERASED_NAME = "erased";
 
 export interface SlidesAccountDeps {
   store: Store;
+  /** The sharing resource type. Default: `deck`. */
+  resourceType?: string;
+  /** The collection of saved Yjs updates. Default: `decks`. */
+  collection?: string;
+  /** Replaces collection access. The host handles authorship in external decks that stay. */
+  contentSource?: SlidesContentSource;
   /**
    * The live rooms (`createLive(env).erase`, as the delete route uses). A room keeps its own copy of the deck and of its authors, so
    * the erase clears the room of each deck that it deletes or changes. Without it, the host clears those rooms itself.
    */
   live?: { erase(deckId: string): Promise<unknown> };
+}
+
+/** External content must be JSON. Deletes must be safe to repeat after a partial failure. */
+export interface SlidesContentSource {
+  exportContent(id: string): Promise<Json>;
+  eraseContent(id: string): Promise<unknown>;
 }
 
 export type SlidesCollection = "decks" | "grants" | "authored";
@@ -31,13 +43,18 @@ export interface SlidesAccount {
   /**
    * Collections: `decks` (each deck the subject owns, with its outline), `grants` (each role the subject holds on a deck,
    * the owner role too), and `authored` (each deck, slide, or element in a deck of someone else where the subject is the
-   * author or the last editor). It holds no format, version, or time: the host's manifest has the time.
+   * author or the last editor). With `contentSource`, owned decks have JSON `content` instead of `outline`, and
+   * `authored` is empty. The host handles author records in external decks that stay.
+   * It holds no format, version, or time: the host's manifest has the time.
    */
   exportAccount(subject: Subject, deps: SlidesAccountDeps): Promise<Record<SlidesCollection, Record<string, Json>[]>>;
   /**
    * Hard deletes each deck where the subject is the only owner, with its sharing records. It removes the other roles of the
    * subject, and it replaces the subject as author in the decks that stay with the name `erased` (the kind stays). Counts by
    * the collection names of the export. `grants` counts each role removed, the owner role of a deleted deck too. A repeat counts zero. Run it with writes stopped. With `deps.live`, it clears the room of each deck that it deletes or changes, and it reads each deck one more time. Without it, the host must do that. Images stay in the blob store: other decks can use the same image.
+   * With `contentSource`, erase calls the source only for decks with one owner, then removes the index and sharing
+   * records. It does not scan the collection or change authors in external decks. Callback errors reject the call;
+   * earlier changes can remain. The source must allow a repeat delete so the host can retry.
    */
   eraseAccount(subject: Subject, deps: SlidesAccountDeps): Promise<Record<SlidesCollection, number>>;
 }
@@ -54,11 +71,11 @@ async function* pages(store: Store, collection: string, where?: Record<string, s
 }
 
 /** The grants of the subject on decks: the doc id, the deck id, and the role. A grant on another kind of resource is not ours. */
-async function grantsOf(store: Store, subject: Subject) {
+async function grantsOf(store: Store, subject: Subject, resourceType: string) {
   const found: { docId: string; deckId: string; role: string }[] = [];
   for await (const { id, data } of pages(store, "grants", { subjectKind: subject.kind, subjectId: subject.id })) {
     if (typeof data.resourceId !== "string" || typeof data.role !== "string") continue;
-    if ((await store.get<{ type?: string }>("resources", data.resourceId))?.type !== DECK) continue;
+    if ((await store.get<{ type?: string }>("resources", data.resourceId))?.type !== resourceType) continue;
     found.push({ docId: id, deckId: data.resourceId, role: data.role });
   }
   return found;
@@ -78,18 +95,22 @@ const subjectOf = (subject: Subject): Subject => {
 
 export const slidesAccount: SlidesAccount = {
   id: "slides",
-  async exportAccount(subject, { store }) {
+  async exportAccount(subject, { store, resourceType = DECK, collection = COLLECTION, contentSource }) {
     const who = subjectOf(subject);
-    const grants = await grantsOf(store, who);
+    const grants = await grantsOf(store, who, resourceType);
     const owned = new Set(grants.filter((g) => g.role === "owner").map((g) => g.deckId));
     const decks: Record<string, Json>[] = [];
     for (const deckId of [...owned].sort()) {
-      const saved = await store.get<{ update: string }>(COLLECTION, deckId);
+      if (contentSource) {
+        decks.push({ id: deckId, role: "owner", content: await contentSource.exportContent(deckId) });
+        continue;
+      }
+      const saved = await store.get<{ update: string }>(collection, deckId);
       if (saved) decks.push({ id: deckId, role: "owner", outline: Deck.fromUpdate(fromBase64(saved.update)).outline() as unknown as Json });
     }
     const authors = authorsOf(who);
     const authored: unknown[] = [];
-    for await (const { id, data } of pages(store, COLLECTION)) {
+    if (!contentSource) for await (const { id, data } of pages(store, collection)) {
       if (owned.has(id) || typeof data.update !== "string") continue;
       for (const record of Deck.fromUpdate(fromBase64(data.update)).authorship(authors)) authored.push({ deckId: id, ...record });
     }
@@ -100,12 +121,12 @@ export const slidesAccount: SlidesAccount = {
     };
   },
 
-  async eraseAccount(subject, { store, live }) {
+  async eraseAccount(subject, { store, live, resourceType = DECK, collection = COLLECTION, contentSource }) {
     const who = subjectOf(subject);
     const sharing = createSharing(store);
-    const ctx = { principalId: who.id, kind: who.kind, chain: [{ id: who.id, kind: who.kind }], scopes: [`${DECK}:admin`] };
+    const ctx = { principalId: who.id, kind: who.kind, chain: [{ id: who.id, kind: who.kind }], scopes: [`${resourceType}:admin`] };
     const counts = { decks: 0, grants: 0, authored: 0 };
-    for (const { docId, deckId, role } of await grantsOf(store, who)) {
+    for (const { docId, deckId, role } of await grantsOf(store, who, resourceType)) {
       if (role !== "owner") {
         await store.delete("grants", docId);
         counts.grants++;
@@ -119,11 +140,15 @@ export const slidesAccount: SlidesAccount = {
         continue;
       }
       // The deck goes first. A stop leaves the owner record, and the next run finds it and goes on.
-      if (await store.get(COLLECTION, deckId)) {
+      if (contentSource) {
+        await contentSource.eraseContent(deckId);
+        await store.delete(INDEX, deckId);
+        counts.decks++;
+      } else if (await store.get(collection, deckId)) {
         // The room goes first: it keeps the deck, and a client that is in it could save the deck again.
         await live?.erase(deckId);
         await store.transaction(async (tx) => {
-          await tx.delete(COLLECTION, deckId);
+          await tx.delete(collection, deckId);
           await tx.delete(INDEX, deckId);
         });
         counts.decks++;
@@ -134,19 +159,19 @@ export const slidesAccount: SlidesAccount = {
       counts.grants++;
     }
     const authors = authorsOf(who);
-    for await (const { id } of pages(store, COLLECTION)) {
+    if (!contentSource) for await (const { id } of pages(store, collection)) {
       // One deck at a time in a transaction, so a write from another caller makes it run again.
       // A room that is open can save the old names back, so it goes before the write when this deck has a match.
-      const seen = live && (await store.get<{ update: string }>(COLLECTION, id));
+      const seen = live && (await store.get<{ update: string }>(collection, id));
       if (seen && Deck.fromUpdate(fromBase64(seen.update)).authorship(authors).length > 0) await live!.erase(id);
       const changed = await store.transaction(async (tx) => {
-        const saved = await tx.get<{ update: string; title?: string }>(COLLECTION, id);
+        const saved = await tx.get<{ update: string; title?: string }>(collection, id);
         if (!saved) return 0;
         const deck = Deck.fromUpdate(fromBase64(saved.update));
         const changed = deck.anonymise(authors, ERASED_NAME);
         if (changed === 0) return 0;
         const index = await tx.get<Record<string, Json>>(INDEX, id);
-        await tx.put(COLLECTION, id, { ...saved, update: toBase64(deck.encode()) });
+        await tx.put(collection, id, { ...saved, update: toBase64(deck.encode()) });
         if (index) {
           const last = readPrincipal(index.editedBy);
           if (authors.some((p) => p.kind === last.kind && p.name === last.name)) await tx.put(INDEX, id, { ...index, editedBy: { kind: last.kind, name: ERASED_NAME } });
