@@ -2,6 +2,13 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.14.4 - 2026-10-30
+
+### Changed
+
+- Accept agentic package releases below 1.0.0 while keeping the minimum supported versions.
+- Test the current and minimum releases of the four agentic dependencies. Keep current release pins under development aliases so production installs include the runtime packages.
+
 ## 0.14.3 - 2026-10-30
 
 ### Changed

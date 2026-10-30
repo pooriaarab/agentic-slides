@@ -1,6 +1,6 @@
 {
   "name": "agentic-slides",
-  "version": "0.14.3",
+  "version": "0.14.4",
   "description": "Build and present slide decks with people and agents.",
   "keywords": [
     "slides",
@@ -87,10 +87,10 @@
     "@cantoo/pdf-lib": "^2.11.1",
     "@modelcontextprotocol/sdk": "^1.23.0",
     "@noble/hashes": "^2.4.0",
-    "agentic-design": ">=0.8.0 <0.11.0",
-    "agentic-formats": "^0.4.2",
-    "agentic-identity": ">=0.9.0 <0.12.0",
-    "agentic-realtime": ">=0.4.4 <0.7.0",
+    "agentic-design": ">=0.8.0 <1.0.0",
+    "agentic-formats": ">=0.4.2 <1.0.0",
+    "agentic-identity": ">=0.9.0 <1.0.0",
+    "agentic-realtime": ">=0.4.4 <1.0.0",
     "hono": "^4.9.0",
     "lib0": "^0.2.119",
     "yjs": "^13.6.33",
@@ -115,7 +115,11 @@
     "tsup": "^8.0.0",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0",
-    "wrangler": "^4.40.0"
+    "wrangler": "^4.40.0",
+    "test-agentic-design": "npm:agentic-design@0.10.1",
+    "test-agentic-formats": "npm:agentic-formats@0.4.4",
+    "test-agentic-identity": "npm:agentic-identity@0.12.0",
+    "test-agentic-realtime": "npm:agentic-realtime@0.6.0"
   },
   "peerDependencies": {
     "react": "^19.0.0",
