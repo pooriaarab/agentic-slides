@@ -17,7 +17,12 @@ const work = mkdtempSync(join(tmpdir(), "slides-share-"));
 let server: Server;
 let mcp: Client;
 
-const as = (token: string) => createClient({ baseUrl: server.url, token });
+// CLI calls block this test process, so do not keep a socket idle across them.
+const as = (token: string) => createClient({ baseUrl: server.url, token, fetch: (input, init) => {
+  const headers = new Headers(init?.headers);
+  headers.set("connection", "close");
+  return fetch(input, { ...init, headers });
+} });
 const cli = (args: string[], token?: string) => {
   const env = { PATH: process.env.PATH, ...(token ? { SLIDES_LIVE_URL: server.url, SLIDES_LIVE_TOKEN: token } : {}) };
   const result = spawnSync("node", [join(process.cwd(), "dist", "cli.js"), ...args], { cwd: work, encoding: "utf8", env });

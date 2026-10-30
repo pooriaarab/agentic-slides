@@ -2,6 +2,14 @@
 
 This file lists the notable changes to this project, by version.
 
+## 0.14.3 - 2026-10-30
+
+### Changed
+
+- Allow agentic-design 0.10, agentic-identity 0.11, and agentic-realtime 0.6 while keeping the earlier supported versions.
+- Test the current releases of these packages and agentic-formats in the local gate. Realtime 0.6 uses its own identity 0.10 copy because its range excludes 0.11. The gate does not test every supported version.
+- Close idle test connections and yield between CLI test cases. These changes prevent stale sockets and test runner timeouts when synchronous CLI calls block the test process.
+
 ## 0.14.2 - 2026-10-30
 
 ### Added

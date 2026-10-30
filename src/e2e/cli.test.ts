@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDFDocument } from "@cantoo/pdf-lib";
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test } from "vitest";
 
 // End to end: the built CLI, a real store on disk, real files. Needs `npm run build`.
 const CLI = join(process.cwd(), "dist", "cli.js");
@@ -41,6 +41,9 @@ beforeAll(() => {
   writeFileSync(join(work, "cat.png"), PNG);
   writeFileSync(join(work, "notes.txt"), "not an image");
 });
+
+// Let the test runner process updates between synchronous CLI calls.
+afterEach(() => new Promise<void>((resolve) => setImmediate(resolve)));
 
 describe("slides CLI", () => {
   test("refuses to edit without an author, and rejects an unknown kind", () => {
