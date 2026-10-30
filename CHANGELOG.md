@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.4 - 2026-10-30
+
+**Changed**
+
+- Allow current releases of the shared packages.
+
 This file lists the notable changes to this project, by version.
 
 ## 0.14.0 - 2026-10-30
