@@ -20,6 +20,35 @@ async function setup() {
 const exportOf = (store: Store, subject: Subject) => slidesAccount.exportAccount(subject, { store });
 
 describe("slidesAccount", () => {
+  it.each([new Uint8Array([1, 2]), undefined, new Date(), 1n, NaN, { nested: undefined }])("rejects non-JSON external content: %s", async (content) => {
+    const { store, make } = await setup();
+    await make("room", ana);
+    await expect(slidesAccount.exportAccount(ana, {
+      store,
+      contentSource: { exportContent: async () => content as never, eraseContent: async () => {} },
+    })).rejects.toThrow('Content for deck "room" must be JSON');
+  });
+
+  it.each(["", null, 42, "deck_index", "grants", "resources", "invites", "share_links", "audit", "links", "principals", "users", "keys", "magic_links", "sessions", "credentials", "handles", "auth_flows", "rate_limits"])("rejects unsafe collections before account access: %s", async (collection) => {
+    const { store, make } = await setup();
+    await make("mine", ana);
+    const before = await exportOf(store, ana);
+    const deps = { store, collection: collection as never };
+    await expect(slidesAccount.exportAccount(ana, deps)).rejects.toThrow("Invalid account collection");
+    await expect(slidesAccount.eraseAccount(ana, deps)).rejects.toThrow("Invalid account collection");
+    expect(await exportOf(store, ana)).toEqual(before);
+  });
+
+  it.each(["", null, 42, "Deck", "deck:admin", "a\n"])("rejects invalid resource types: %s", async (resourceType) => {
+    const { store, make } = await setup();
+    await make("mine", ana);
+    const before = await exportOf(store, ana);
+    const deps = { store, resourceType: resourceType as never };
+    await expect(slidesAccount.exportAccount(ana, deps)).rejects.toThrow("Invalid account resource type");
+    await expect(slidesAccount.eraseAccount(ana, deps)).rejects.toThrow("Invalid account resource type");
+    expect(await exportOf(store, ana)).toEqual(before);
+  });
+
   it("uses the configured resource type and collection for export and erase", async () => {
     const { store, make } = await setup();
     await make("custom", ana);

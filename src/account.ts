@@ -62,6 +62,36 @@ export interface SlidesAccount {
 // Through JSON, so the records are what a file would hold: a key with no value is dropped, not left as `undefined`.
 const plain = (value: unknown): Record<string, Json>[] => JSON.parse(JSON.stringify(value)) as Record<string, Json>[];
 
+const RESERVED_COLLECTIONS = new Set([INDEX, "resources", "grants", "links", "share_links", "invites", "audit", "principals", "users", "keys", "magic_links", "sessions", "credentials", "handles", "auth_flows", "rate_limits"]);
+
+function checkOptions(resourceType: unknown, collection: unknown) {
+  if (typeof resourceType !== "string" || !/^[a-z][a-z0-9_-]*$/.test(resourceType) || resourceType.trim() !== resourceType) {
+    throw new Error("Invalid account resource type");
+  }
+  if (typeof collection !== "string" || collection.trim() === "" || RESERVED_COLLECTIONS.has(collection)) {
+    throw new Error("Invalid account collection");
+  }
+}
+
+function jsonContent(value: unknown, deckId: string): Json {
+  const active = new Set<object>();
+  const check = (item: unknown): boolean => {
+    if (item === null || typeof item === "string" || typeof item === "boolean") return true;
+    if (typeof item === "number") return Number.isFinite(item);
+    if (typeof item !== "object" || active.has(item)) return false;
+    const array = Array.isArray(item);
+    if (!array && Object.getPrototypeOf(item) !== Object.prototype && Object.getPrototypeOf(item) !== null) return false;
+    active.add(item);
+    const valid = array
+      ? Object.keys(item).length === item.length && Array.from(item).every(check)
+      : Object.values(item).every(check);
+    active.delete(item);
+    return valid;
+  };
+  if (!check(value)) throw new Error(`Content for deck "${deckId}" must be JSON`);
+  return value as Json;
+}
+
 async function* pages(store: Store, collection: string, where?: Record<string, string>) {
   for (let cursor: string | undefined; ; ) {
     const page = await store.query<Record<string, Json>>(collection, { ...(where ? { where } : {}), limit: PAGE, ...(cursor === undefined ? {} : { cursor }) });
@@ -96,13 +126,14 @@ const subjectOf = (subject: Subject): Subject => {
 export const slidesAccount: SlidesAccount = {
   id: "slides",
   async exportAccount(subject, { store, resourceType = DECK, collection = COLLECTION, contentSource }) {
+    checkOptions(resourceType, collection);
     const who = subjectOf(subject);
     const grants = await grantsOf(store, who, resourceType);
     const owned = new Set(grants.filter((g) => g.role === "owner").map((g) => g.deckId));
     const decks: Record<string, Json>[] = [];
     for (const deckId of [...owned].sort()) {
       if (contentSource) {
-        decks.push({ id: deckId, role: "owner", content: await contentSource.exportContent(deckId) });
+        decks.push({ id: deckId, role: "owner", content: jsonContent(await contentSource.exportContent(deckId), deckId) });
         continue;
       }
       const saved = await store.get<{ update: string }>(collection, deckId);
@@ -122,6 +153,7 @@ export const slidesAccount: SlidesAccount = {
   },
 
   async eraseAccount(subject, { store, live, resourceType = DECK, collection = COLLECTION, contentSource }) {
+    checkOptions(resourceType, collection);
     const who = subjectOf(subject);
     const sharing = createSharing(store);
     const ctx = { principalId: who.id, kind: who.kind, chain: [{ id: who.id, kind: who.kind }], scopes: [`${resourceType}:admin`] };

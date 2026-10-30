@@ -7,7 +7,7 @@
 
 Build and present slide decks with people and agents.
 
-> Status: early. The deck library, the HTML render, the CLI, the MCP server,
+> Status: early (0.14.0). The deck library, the HTML render, the CLI, the MCP server,
 > PDF export, the HTTP API, live rooms, and the web UI work. The `agentic-slides/formats` library maps a deck to and from ODP and PPTX. The CLI, the MCP server, and the HTTP API do not use it yet.
 
 ## Install
@@ -427,7 +427,10 @@ The export has three collections: `decks` (decks the subject owns, with the outl
 
 Set `resourceType` to change the sharing resource type (default `"deck"`). Set
 `collection` to change the collection of saved updates (default `"decks"`). These
-options apply to both account methods. The export collection names stay the same.
+options apply to both account methods. The resource type must start with a lower-case
+letter and use only lower-case letters, digits, `_`, and `-`. The collection must
+be a non-empty string. Identity collections and `deck_index` are reserved.
+Both methods check these options before storage access. The export collection names stay the same.
 
 A host can pass `contentSource` to use external content, such as room history:
 
@@ -437,7 +440,7 @@ const deps = {
   resourceType: "presentation",
   collection: "presentations",
   contentSource: {
-    exportContent: async (id: string) => rooms.exportHistory(id),
+    exportContent: async (id: string) => rooms.exportHistoryJson(id),
     eraseContent: async (id: string) => rooms.delete(id),
   },
 };
@@ -447,7 +450,8 @@ const counts = await slidesAccount.eraseAccount({ kind: "human", id: "ana" }, de
 
 With `contentSource`, the plug-in does not read or change the content collection.
 Each owned deck has `content` (the JSON result of `exportContent`) in place of
-`outline`. The erase calls `eraseContent` only for decks with one owner. It then
+`outline`. A result that is not JSON rejects the export with the deck id.
+The host must convert bytes to JSON before it returns content. The erase calls `eraseContent` only for decks with one owner. It then
 removes the local index and sharing records. Each completed content erase counts
 as one deck. `eraseContent` must be safe to repeat, even if the content is absent.
 A callback failure rejects the call. Earlier changes can remain; sharing records
