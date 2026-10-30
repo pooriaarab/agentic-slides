@@ -7,7 +7,7 @@
 
 Build and present slide decks with people and agents.
 
-> Status: 0.14.1, early. The deck library, the HTML render, the CLI, the MCP server,
+> Status: 0.14.2, early. The deck library, the HTML render, the CLI, the MCP server,
 > PDF export, the HTTP API, live rooms, and the web UI work. The `agentic-slides/formats` library maps a deck to and from ODP and PPTX. The CLI, the MCP server, and the HTTP API do not use it yet.
 
 ## Install
@@ -326,6 +326,38 @@ const editor = mount(document.getElementById("slides")!, {
 - Present needs `onPresent` in host mode, because only the Worker UI has a present page. Without it, Present is off.
 - The status says "Presence on" when you give `awareness`. It does not know if your provider is online.
 - The document is a deck as `agentic-slides` stores it. Make one with `Deck.create` from `agentic-slides`, or open an existing one.
+
+### Download a host deck as PDF
+
+The public UI entry exports `renderPdf`. It runs in the browser and needs no server. The PDF code loads when you call it.
+Pass the current outline of the host document and a map of image references to PNG
+or JPEG bytes. The call returns `{ bytes: Uint8Array, warnings: string[] }`.
+
+```ts
+import { Deck } from "agentic-slides";
+import { renderPdf } from "agentic-slides/ui";
+
+// `doc` is the same Y.Doc that you pass to mount({ host: { doc } }).
+// Keep image bytes in your own store. Use the full blob:sha256-... key.
+const images = new Map<string, Uint8Array>();
+const { bytes, warnings } = await renderPdf(new Deck(doc).outline(), images);
+const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/pdf" }));
+const link = document.createElement("a");
+link.href = url;
+link.download = "slides.pdf";
+link.click();
+setTimeout(() => URL.revokeObjectURL(url), 1000);
+// Show warnings in your app, so the person can check the result.
+console.warn(warnings);
+```
+
+Each slide becomes one 1280 by 720 page. A missing or invalid image becomes a
+placeholder with a warning. Text that does not fit is cut and gives a warning.
+The renderer embeds the bundled fonts and makes no remote request. It does not
+change the document. The optional third argument accepts `{ limits: { maxSlides,
+maxElements, maxImagePixels, maxImageBytes, maxTotalImageBytes, maxMillis } }`.
+Each limit is optional. A deck that exceeds a limit fails with `EXPORT_LIMIT`.
+Your app must check who may download the deck.
 
 ## SDK
 

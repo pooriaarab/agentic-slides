@@ -4,7 +4,7 @@ import "agentic-design/styles.css";
 import { AppShell, Button, EmptyState, Input, Select, SidebarNav, ThemeProvider, ToastProvider, TooltipProvider, useTheme, type ThemePreference } from "agentic-design/react";
 import "./app.css";
 import { DeckList } from "./decks.js";
-import { SlidesEditor } from "./embed.js";
+import { SlidesEditor } from "./mount.js";
 import { Present } from "./present.js";
 import { hrefOf, useRoute } from "./route.js";
 import { clearToken, clientFor, messageOf, saveToken, savedToken, type Me } from "./session.js";

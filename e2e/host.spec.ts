@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { build } from "esbuild";
+import { PDFDocument } from "@cantoo/pdf-lib";
 import { extname } from "node:path";
 import { checkView } from "./helpers.js";
 
@@ -34,6 +35,10 @@ test("a host page edits its own Yjs document with no request to a slides server,
     return body ? route.fulfill({ contentType: TYPES[extname(path)] ?? "application/octet-stream", body: Buffer.from(body) }) : route.fulfill({ status: 404 });
   });
 
+  // Older browsers have atob but no Uint8Array.fromBase64 or Node Buffer.
+  await page.addInitScript(() => {
+    Object.defineProperty(Uint8Array, "fromBase64", { value: undefined, configurable: true });
+  });
   await page.goto(`${ORIGIN}/`);
   await expect(page.getByRole("heading", { name: "Host deck" })).toBeVisible();
   await page.getByRole("button", { name: /^Text box 1/ }).first().click();
@@ -44,6 +49,9 @@ test("a host page edits its own Yjs document with no request to a slides server,
   await expect.poll(() => page.evaluate(() => (window as never as { hostDeck: { outline(): { slides: unknown[] } } }).hostDeck.outline().slides.length)).toBe(3);
   await page.evaluate(() => (window as never as { hostDeck: { addSlide(o: object, a: object): string } }).hostDeck.addSlide({}, { kind: "agent", name: "peer" }));
   await expect(page.locator(".sorter li")).toHaveCount(4);
+
+  const bytes = await page.evaluate(() => (window as unknown as { hostPdf: () => Promise<number[]> }).hostPdf());
+  expect((await PDFDocument.load(Uint8Array.from(bytes))).getPageCount()).toBe(4);
 
   // Only the page and its own bundle loaded. No slides API call, no other origin.
   expect(urls.filter((u) => !u.startsWith(`${ORIGIN}/`) && !u.startsWith("data:"))).toEqual([]);

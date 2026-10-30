@@ -8,9 +8,14 @@ import regular from "../../fonts/NotoSans-regular.ttf";
  * punctuation, and a few symbols. The files ship inside the bundle, so export loads
  * nothing from the network. See fonts/OFL.txt.
  */
+const decode = (data: string | Uint8Array | ArrayBuffer): Uint8Array =>
+  typeof data === "string"
+    ? Uint8Array.from(atob(data), (char) => char.charCodeAt(0))
+    : new Uint8Array(data);
+
 export const NOTO_SANS = {
-  regular: new Uint8Array(regular),
-  bold: new Uint8Array(bold),
-  italic: new Uint8Array(italic),
-  boldItalic: new Uint8Array(boldItalic),
+  regular: decode(regular),
+  bold: decode(bold),
+  italic: decode(italic),
+  boldItalic: decode(boldItalic),
 };

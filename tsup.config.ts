@@ -19,5 +19,5 @@ export default defineConfig({
   dts: true,
   clean: true,
   // The font files are bundled, so a Worker needs no file system.
-  loader: { ".ttf": "binary", ".woff2": "file" },
+  loader: { ".ttf": "base64", ".woff2": "file" },
 });
