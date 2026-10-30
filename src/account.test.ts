@@ -17,6 +17,14 @@ async function setup() {
   return { store, sharing, decks, make };
 }
 
+const noAccess: Store = {
+  get: async () => { throw new Error("unexpected store access"); },
+  query: async () => { throw new Error("unexpected store access"); },
+  put: async () => { throw new Error("unexpected store access"); },
+  delete: async () => { throw new Error("unexpected store access"); },
+  transaction: async () => { throw new Error("unexpected store access"); },
+};
+
 const exportOf = (store: Store, subject: Subject) => slidesAccount.exportAccount(subject, { store });
 
 describe("slidesAccount", () => {
@@ -33,7 +41,7 @@ describe("slidesAccount", () => {
     const { store, make } = await setup();
     await make("mine", ana);
     const before = await exportOf(store, ana);
-    const deps = { store, collection: collection as never };
+    const deps = { store: noAccess, collection: collection as never };
     await expect(slidesAccount.exportAccount(ana, deps)).rejects.toThrow("Invalid account collection");
     await expect(slidesAccount.eraseAccount(ana, deps)).rejects.toThrow("Invalid account collection");
     expect(await exportOf(store, ana)).toEqual(before);
@@ -43,7 +51,7 @@ describe("slidesAccount", () => {
     const { store, make } = await setup();
     await make("mine", ana);
     const before = await exportOf(store, ana);
-    const deps = { store, resourceType: resourceType as never };
+    const deps = { store: noAccess, resourceType: resourceType as never };
     await expect(slidesAccount.exportAccount(ana, deps)).rejects.toThrow("Invalid account resource type");
     await expect(slidesAccount.eraseAccount(ana, deps)).rejects.toThrow("Invalid account resource type");
     expect(await exportOf(store, ana)).toEqual(before);
